@@ -508,6 +508,66 @@ Mission Control is built by a growing community. Thank you to everyone who has c
       <sub>Static Route Fix</sub>
     </td>
   </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/grunya-openclaw">
+        <img src="https://github.com/grunya-openclaw.png?size=80" width="80" height="80" style="border-radius:50%" alt="grunya-openclaw" /><br />
+        <sub><b>grunya-openclaw</b></sub>
+      </a><br />
+      <sub>Dispatch & Proxy Bug Reports</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/ilakskill">
+        <img src="https://github.com/ilakskill.png?size=80" width="80" height="80" style="border-radius:50%" alt="ilakskill" /><br />
+        <sub><b>ilakskill</b></sub>
+      </a><br />
+      <sub>Dispatch Recovery Design</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/plutusaisystem-cmyk">
+        <img src="https://github.com/plutusaisystem-cmyk.png?size=80" width="80" height="80" style="border-radius:50%" alt="plutusaisystem-cmyk" /><br />
+        <sub><b>plutusaisystem-cmyk</b></sub>
+      </a><br />
+      <sub>Agent Daemon & Fleet View</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/nithis4th">
+        <img src="https://github.com/nithis4th.png?size=80" width="80" height="80" style="border-radius:50%" alt="nithis4th" /><br />
+        <sub><b>nithis4th</b></sub>
+      </a><br />
+      <sub>2nd Brain Knowledge Base</sub>
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <a href="https://github.com/davidpellerin">
+        <img src="https://github.com/davidpellerin.png?size=80" width="80" height="80" style="border-radius:50%" alt="davidpellerin" /><br />
+        <sub><b>davidpellerin</b></sub>
+      </a><br />
+      <sub>Dynamic Agent Config</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/tmchow">
+        <img src="https://github.com/tmchow.png?size=80" width="80" height="80" style="border-radius:50%" alt="tmchow" /><br />
+        <sub><b>tmchow</b></sub>
+      </a><br />
+      <sub>Agent Import Improvements</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/xiaomiusa87">
+        <img src="https://github.com/xiaomiusa87.png?size=80" width="80" height="80" style="border-radius:50%" alt="xiaomiusa87" /><br />
+        <sub><b>xiaomiusa87</b></sub>
+      </a><br />
+      <sub>Session Key Bug Report</sub>
+    </td>
+    <td align="center">
+      <a href="https://github.com/lutherbot-ai">
+        <img src="https://github.com/lutherbot-ai.png?size=80" width="80" height="80" style="border-radius:50%" alt="lutherbot-ai" /><br />
+        <sub><b>lutherbot-ai</b></sub>
+      </a><br />
+      <sub>Security Audit</sub>
+    </td>
+  </tr>
 </table>
 
 ---

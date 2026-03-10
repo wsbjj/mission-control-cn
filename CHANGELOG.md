@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.4.1] - 2026-03-10
+
+### Added
+- **Kanban UX Improvements** — Improved horizontal scrollbar visibility and hit area. Added optional compact empty columns mode (off by default, toggleable via Settings → Kanban UX). (PR #66)
+- **Docker CI Workflow** — GitHub Actions workflow to automatically build the Dockerfile on push. (PR #69)
+- **Pipeline Documentation** — Added `docs/HOW-THE-PIPELINE-WORKS.md` explaining the full multi-agent pipeline lifecycle, stages, loop-back mechanics, and Learner knowledge injection.
+
+### Fixed
+- **Workspace Deletion** — Fixed `SQLITE_CONSTRAINT_FOREIGNKEY` error when deleting workspaces that have auto-created workflow templates or knowledge entries. Cascade deletion now properly cleans up dependent records. (PR #71, fixes #70)
+
+---
+
 ## [1.4.0] - 2026-03-03
 
 ### Added

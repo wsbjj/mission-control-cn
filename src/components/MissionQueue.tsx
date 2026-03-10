@@ -1,12 +1,13 @@
 'use client';
 
-import { useState } from 'react';
-import { Plus, ChevronRight, GripVertical, ArrowRightLeft } from 'lucide-react';
-import { useMissionControl } from '@/lib/store';
-import { triggerAutoDispatch, shouldTriggerAutoDispatch } from '@/lib/auto-dispatch';
-import type { Task, TaskStatus } from '@/lib/types';
-import { TaskModal } from './TaskModal';
-import { formatDistanceToNow } from 'date-fns';
+import {useState} from 'react';
+import {Plus, ChevronRight, GripVertical, ArrowRightLeft} from 'lucide-react';
+import {useMissionControl} from '@/lib/store';
+import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
+import type {Task, TaskStatus} from '@/lib/types';
+import {TaskModal} from './TaskModal';
+import {formatDistanceToNow} from 'date-fns';
+import {useTranslations} from 'next-intl'; // 任务队列文案国际化 / i18n for mission queue copy
 
 interface MissionQueueProps {
   workspaceId?: string;
@@ -14,19 +15,20 @@ interface MissionQueueProps {
   isPortrait?: boolean;
 }
 
-const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
-  { id: 'planning', label: '📋 Planning', color: 'border-t-mc-accent-purple' },
-  { id: 'inbox', label: 'Inbox', color: 'border-t-mc-accent-pink' },
-  { id: 'assigned', label: 'Assigned', color: 'border-t-mc-accent-yellow' },
-  { id: 'in_progress', label: 'In Progress', color: 'border-t-mc-accent' },
-  { id: 'testing', label: 'Testing', color: 'border-t-mc-accent-cyan' },
-  { id: 'review', label: 'Review', color: 'border-t-mc-accent-purple' },
-  { id: 'verification', label: 'Verification', color: 'border-t-orange-500' },
-  { id: 'done', label: 'Done', color: 'border-t-mc-accent-green' },
+const COLUMNS: {id: TaskStatus; labelKey: string; color: string}[] = [
+  {id: 'planning', labelKey: 'columnPlanning', color: 'border-t-mc-accent-purple'},
+  {id: 'inbox', labelKey: 'columnInbox', color: 'border-t-mc-accent-pink'},
+  {id: 'assigned', labelKey: 'columnAssigned', color: 'border-t-mc-accent-yellow'},
+  {id: 'in_progress', labelKey: 'columnInProgress', color: 'border-t-mc-accent'},
+  {id: 'testing', labelKey: 'columnTesting', color: 'border-t-mc-accent-cyan'},
+  {id: 'review', labelKey: 'columnReview', color: 'border-t-mc-accent-purple'},
+  {id: 'verification', labelKey: 'columnVerification', color: 'border-t-orange-500'},
+  {id: 'done', labelKey: 'columnDone', color: 'border-t-mc-accent-green'},
 ];
 
-export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = true }: MissionQueueProps) {
-  const { tasks, updateTaskStatus, addEvent } = useMissionControl();
+export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true}: MissionQueueProps) {
+  const {tasks, updateTaskStatus, addEvent} = useMissionControl();
+  const t = useTranslations('missionQueue'); // 任务队列命名空间 / Namespace for mission queue
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
@@ -107,14 +109,16 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
       <div className="p-3 border-b border-mc-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <ChevronRight className="w-4 h-4 text-mc-text-secondary" />
-          <span className="text-sm font-medium uppercase tracking-wider">Mission Queue</span>
+          <span className="text-sm font-medium uppercase tracking-wider">
+            {t('title') /* 任务队列标题 / Mission queue title */}
+          </span>
         </div>
         <button
           onClick={() => setShowCreateModal(true)}
           className="flex items-center gap-2 px-4 min-h-11 bg-mc-accent-pink text-mc-bg rounded text-sm font-medium hover:bg-mc-accent-pink/90"
         >
           <Plus className="w-4 h-4" />
-          New Task
+          {t('newTask') /* 新建任务按钮 / New task button */}
         </button>
       </div>
 
@@ -130,7 +134,9 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
                 onDrop={(e) => handleDrop(e, column.id)}
               >
                 <div className="p-2 border-b border-mc-border flex items-center justify-between">
-                  <span className="text-xs font-medium uppercase text-mc-text-secondary">{column.label}</span>
+                  <span className="text-xs font-medium uppercase text-mc-text-secondary">
+                    {t(column.labelKey) /* 列标题文案 / Column title label */}
+                  </span>
                   <span className="text-xs bg-mc-bg-tertiary px-2 py-0.5 rounded text-mc-text-secondary">{columnTasks.length}</span>
                 </div>
 
@@ -168,7 +174,7 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
                       : 'bg-mc-bg-secondary border-mc-border text-mc-text-secondary'
                   }`}
                 >
-                  {column.label} ({count})
+                  {t(column.labelKey)} ({count})
                 </button>
               );
             })}
@@ -177,7 +183,7 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
           <div className={`min-w-0 ${isPortrait ? 'space-y-3' : 'space-y-2'}`}>
             {mobileTasks.length === 0 ? (
               <div className="text-sm text-mc-text-secondary bg-mc-bg-secondary border border-mc-border rounded-lg p-4">
-                No tasks in this status.
+                {t('noTasksInStatus') /* 当前状态无任务提示 / No tasks in status message */}
               </div>
             ) : (
               mobileTasks.map((task) => (
@@ -206,7 +212,9 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
             className="w-full sm:max-w-md bg-mc-bg-secondary border border-mc-border rounded-t-xl sm:rounded-xl p-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="text-sm text-mc-text-secondary mb-2">Move task</div>
+            <div className="text-sm text-mc-text-secondary mb-2">
+              {t('moveTaskModalTitle') /* 移动任务弹窗标题 / Move task modal title */}
+            </div>
             <div className="font-medium mb-4 line-clamp-2">{statusMoveTask.title}</div>
             <div className="space-y-2 max-h-[50vh] overflow-y-auto">
               {COLUMNS.map((column) => (
@@ -219,7 +227,7 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
                   disabled={statusMoveTask.status === column.id}
                   className="w-full min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-left text-sm disabled:opacity-40"
                 >
-                  {column.label}
+                  {t(column.labelKey) /* 状态按钮文案 / Status button label */}
                 </button>
               ))}
             </div>
@@ -240,7 +248,8 @@ interface TaskCardProps {
   portraitMode?: boolean;
 }
 
-function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true }: TaskCardProps) {
+function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true}: TaskCardProps) {
+  const t = useTranslations('missionQueue'); // 任务卡片文案国际化 / i18n for task card copy
   const priorityStyles = {
     low: 'text-mc-text-secondary',
     normal: 'text-mc-accent',
@@ -280,28 +289,36 @@ function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobile
         {isPlanning && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-purple-500/10 rounded-md border border-purple-500/20`}>
             <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse flex-shrink-0" />
-            <span className="text-xs text-purple-400 font-medium">Continue planning</span>
+            <span className="text-xs text-purple-400 font-medium">
+              {t('continuePlanning') /* 继续规划提示 / Continue planning hint */}
+            </span>
           </div>
         )}
 
         {isAssigned && dispatchError && (
           <div className={`flex items-start gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-red-500/10 rounded-md border border-red-500/30`}>
             <div className="w-2 h-2 bg-red-400 rounded-full mt-1 flex-shrink-0" />
-            <span className="text-xs text-red-300">Assigned, but blocked: {dispatchError}</span>
+            <span className="text-xs text-red-300">
+              {t('assignedBlockedPrefix') /* 已分配但被阻塞前缀 / Assigned but blocked prefix */} {dispatchError}
+            </span>
           </div>
         )}
 
         {isAssigned && !dispatchError && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-yellow-500/10 rounded-md border border-yellow-500/30`}>
             <div className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" />
-            <span className="text-xs text-yellow-200">Assigned and validating — auto-start will move this to In Progress.</span>
+            <span className="text-xs text-yellow-200">
+              {t('assignedValidating') /* 已分配并校验提示 / Assigned and validating hint */}
+            </span>
           </div>
         )}
 
         {task.status === 'inbox' && !task.assigned_agent_id && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-amber-500/10 rounded-md border border-amber-500/30`}>
             <div className="w-2 h-2 bg-amber-400 rounded-full flex-shrink-0" />
-            <span className="text-xs text-amber-200">Needs agent — assign to start</span>
+            <span className="text-xs text-amber-200">
+              {t('needsAgent') /* 待分配智能体提示 / Needs agent hint */}
+            </span>
           </div>
         )}
 
@@ -315,7 +332,9 @@ function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobile
         {task.status === 'review' && !dispatchError && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-cyan-500/10 rounded-md border border-cyan-500/30`}>
             <div className="w-2 h-2 bg-cyan-400 rounded-full flex-shrink-0" />
-            <span className="text-xs text-cyan-200">In queue — waiting for verification</span>
+            <span className="text-xs text-cyan-200">
+              {t('inQueueVerification') /* 等待验证提示 / Waiting for verification hint */}
+            </span>
           </div>
         )}
 
@@ -343,7 +362,7 @@ function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobile
             className={`w-full min-h-11 rounded-md border border-mc-border bg-mc-bg flex items-center justify-center gap-2 text-mc-text-secondary ${portraitMode ? 'mt-3 text-sm' : 'mt-2 text-xs'}`}
           >
             <ArrowRightLeft className="w-4 h-4" />
-            Move Status
+            {t('moveTaskModalButton') /* 移动状态按钮文案 / Move status button label */}
           </button>
         )}
       </div>

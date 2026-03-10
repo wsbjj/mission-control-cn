@@ -1,59 +1,61 @@
 /**
- * Settings Page
- * Configure Mission Control paths, URLs, and preferences
+ * 设置页 / Settings Page
+ * 配置 Mission Control 路径、URL 与偏好 / Configure Mission Control paths, URLs, and preferences
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { Settings, Save, RotateCcw, Home, FolderOpen, Link as LinkIcon } from 'lucide-react';
-import { getConfig, updateConfig, resetConfig, type MissionControlConfig } from '@/lib/config';
+import {useState, useEffect} from 'react';
+import {useRouter} from 'next/navigation';
+import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon} from 'lucide-react';
+import {getConfig, updateConfig, resetConfig, type MissionControlConfig} from '@/lib/config';
 
 export default function SettingsPage() {
-  const router = useRouter();
-  const [config, setConfig] = useState<MissionControlConfig | null>(null);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const router = useRouter(); // 路由实例，用于在设置页内跳转 / Router instance for navigation inside settings page
+  const [config, setConfig] = useState<MissionControlConfig | null>(null); // 当前配置状态 / Current configuration state
+  const [isSaving, setIsSaving] = useState(false); // 保存中状态 / Saving state
+  const [saveSuccess, setSaveSuccess] = useState(false); // 保存成功提示状态 / Save success indicator
+  const [error, setError] = useState<string | null>(null); // 错误信息状态 / Error message state
 
   useEffect(() => {
-    setConfig(getConfig());
+    setConfig(getConfig()); // 初始加载配置 / Load initial configuration
   }, []);
 
   const handleSave = async () => {
-    if (!config) return;
+    if (!config) return; // 若配置尚未加载则直接返回 / Guard when config is not yet loaded
 
-    setIsSaving(true);
-    setError(null);
-    setSaveSuccess(false);
+    setIsSaving(true); // 标记为保存中 / Mark as saving
+    setError(null); // 清空错误 / Clear error
+    setSaveSuccess(false); // 重置成功提示 / Reset success indicator
 
     try {
-      updateConfig(config);
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      updateConfig(config); // 写入配置到存储 / Persist configuration
+      setSaveSuccess(true); // 标记保存成功 / Mark as saved successfully
+      setTimeout(() => setSaveSuccess(false), 3000); // 一段时间后清除提示 / Clear success message after delay
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings');
+      setError(err instanceof Error ? err.message : 'Failed to save settings'); // 显示错误信息 / Show error message
     } finally {
-      setIsSaving(false);
+      setIsSaving(false); // 结束保存状态 / End saving state
     }
   };
 
   const handleReset = () => {
+    // 重置为默认设置的确认提示 / Confirmation dialog for resetting to defaults
     if (confirm('Reset all settings to defaults? This cannot be undone.')) {
-      resetConfig();
-      setConfig(getConfig());
-      setSaveSuccess(true);
-      setTimeout(() => setSaveSuccess(false), 3000);
+      resetConfig(); // 重置配置 / Reset configuration
+      setConfig(getConfig()); // 重新加载默认配置 / Reload default configuration
+      setSaveSuccess(true); // 提示重置成功 / Indicate reset success
+      setTimeout(() => setSaveSuccess(false), 3000); // 一段时间后清除提示 / Clear success message after delay
     }
   };
 
   const handleChange = (field: keyof MissionControlConfig, value: string) => {
-    if (!config) return;
-    setConfig({ ...config, [field]: value });
+    if (!config) return; // 无配置时不处理变更 / Skip when config is not loaded
+    setConfig({...config, [field]: value}); // 更新对应字段值 / Update specific config field
   };
 
   if (!config) {
+    // 加载中占位界面 / Loading placeholder view
     return (
       <div className="min-h-screen bg-mc-bg flex items-center justify-center">
         <div className="text-mc-text-secondary">Loading settings...</div>
@@ -63,7 +65,7 @@ export default function SettingsPage() {
 
   return (
     <div className="min-h-screen bg-mc-bg">
-      {/* Header */}
+      {/* 头部区域：包含返回与保存操作 / Header area: back and save actions */}
       <div className="border-b border-mc-border bg-mc-bg-secondary">
         <div className="max-w-4xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -98,23 +100,23 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* Content */}
+      {/* 主体内容：配置表单与说明 / Main content: configuration form and notes */}
       <div className="max-w-4xl mx-auto px-6 py-8">
-        {/* Success Message */}
+        {/* 保存成功提示 / Success message */}
         {saveSuccess && (
           <div className="mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded text-green-400">
             ✓ Settings saved successfully
           </div>
         )}
 
-        {/* Error Message */}
+        {/* 错误提示 / Error message */}
         {error && (
           <div className="mb-6 p-4 bg-red-500/10 border border-red-500/30 rounded text-red-400">
             ✗ {error}
           </div>
         )}
 
-        {/* Workspace Paths */}
+        {/* 工作区路径配置区块 / Workspace paths configuration section */}
         <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
           <div className="flex items-center gap-2 mb-4">
             <FolderOpen className="w-5 h-5 text-mc-accent" />
@@ -175,7 +177,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* API Configuration */}
+        {/* API 配置区块 / API configuration section */}
         <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
           <div className="flex items-center gap-2 mb-4">
             <LinkIcon className="w-5 h-5 text-mc-accent" />
@@ -204,7 +206,7 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Environment Variables Note */}
+        {/* 环境变量说明区块 / Environment variables note section */}
         <section className="p-6 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <h3 className="text-lg font-semibold text-blue-400 mb-2">
             📝 Environment Variables
@@ -227,3 +229,4 @@ export default function SettingsPage() {
     </div>
   );
 }
+

@@ -1,23 +1,27 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { Zap, Settings, ChevronLeft, LayoutGrid } from 'lucide-react';
-import { useMissionControl } from '@/lib/store';
-import { format } from 'date-fns';
-import type { Workspace } from '@/lib/types';
+import {useState, useEffect} from 'react';
+import {Link, usePathname, useRouter} from '@/i18n/routing'; // 使用共享导航工具 / Shared navigation helpers
+import {Zap, Settings, ChevronLeft, LayoutGrid} from 'lucide-react';
+import {useMissionControl} from '@/lib/store';
+import {format} from 'date-fns';
+import {useLocale, useTranslations} from 'next-intl'; // 国际化文案与当前语言 hook / Hooks for messages and current locale
+import type {Workspace} from '@/lib/types';
 
 interface HeaderProps {
   workspace?: Workspace;
   isPortrait?: boolean;
 }
 
-export function Header({ workspace, isPortrait = true }: HeaderProps) {
-  const router = useRouter();
-  const { agents, tasks, isOnline } = useMissionControl();
+export function Header({workspace, isPortrait = true}: HeaderProps) {
+  const router = useRouter(); // 路由实例，用于页面跳转 / Router instance for navigation
+  const pathname = usePathname(); // 当前路径（不含语言前缀）/ Current pathname without locale prefix
+  const currentLocale = useLocale(); // 当前语言，从 next-intl 上下文读取 / Current locale from next-intl context
+  const t = useTranslations('header'); // 头部区域文案命名空间 / Translations namespace for header area
+  const {agents, tasks, isOnline} = useMissionControl();
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeSubAgents, setActiveSubAgents] = useState(0);
+  const [isLocaleMenuOpen, setIsLocaleMenuOpen] = useState(false); // 语言下拉菜单开关状态 / Toggle state for locale dropdown menu
 
   useEffect(() => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -47,6 +51,14 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
   const tasksInQueue = tasks.filter((t) => t.status !== 'done' && t.status !== 'review').length;
 
   const portraitWorkspaceHeader = !!workspace && isPortrait;
+
+  // 切换语言时构造新路径并跳转（交给 next-intl 路由处理 locale 前缀）
+  // Build new path and navigate when switching locale, delegating locale prefix handling to next-intl router
+  const switchLocale = (targetLocale: string) => {
+    if (targetLocale === currentLocale) return; // 若目标语言与当前相同则不处理 / No-op when target equals current
+    router.push(pathname, {locale: targetLocale}); // 让 next-intl 根据 routing 自动处理语言前缀 / Let next-intl handle locale prefix based on routing
+    setIsLocaleMenuOpen(false); // 切换语言后关闭下拉菜单 / Close dropdown after switching locale
+  };
 
   return (
     <header
@@ -102,7 +114,9 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
           <div className="flex items-center gap-2 md:gap-4 min-w-0">
             <div className="hidden sm:flex items-center gap-2">
               <Zap className="w-5 h-5 text-mc-accent-cyan" />
-              <span className="font-semibold text-mc-text uppercase tracking-wider text-sm">Mission Control</span>
+              <span className="font-semibold text-mc-text uppercase tracking-wider text-sm">
+                {t('title') /* 应用标题文案 / Application title copy */}
+              </span>
             </div>
 
             {workspace ? (
@@ -118,9 +132,14 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
                 </div>
               </div>
             ) : (
-              <Link href="/" className="flex items-center gap-2 px-3 py-1 bg-mc-bg-tertiary rounded hover:bg-mc-bg transition-colors">
+              <Link
+                href="/"
+                className="flex items-center gap-2 px-3 py-1 bg-mc-bg-tertiary rounded hover:bg-mc-bg transition-colors"
+              >
                 <LayoutGrid className="w-4 h-4" />
-                <span className="text-sm">All Workspaces</span>
+                <span className="text-sm">
+                  {t('allWorkspaces') /* “所有工作区”按钮文案 / "All Workspaces" button label */}
+                </span>
               </Link>
             )}
           </div>
@@ -139,7 +158,9 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
           )}
 
           <div className="flex items-center gap-2 md:gap-4">
-            <span className="hidden md:block text-mc-text-secondary text-sm font-mono">{format(currentTime, 'HH:mm:ss')}</span>
+            <span className="hidden md:block text-mc-text-secondary text-sm font-mono">
+              {format(currentTime, 'HH:mm:ss') /* 当前时间显示 / Current time display */}
+            </span>
             <div
               className={`flex items-center gap-2 px-2 md:px-3 py-1 rounded border text-xs md:text-sm font-medium ${
                 isOnline
@@ -147,8 +168,51 @@ export function Header({ workspace, isPortrait = true }: HeaderProps) {
                   : 'bg-mc-accent-red/20 border-mc-accent-red text-mc-accent-red'
               }`}
             >
-              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-mc-accent-green animate-pulse' : 'bg-mc-accent-red'}`} />
-              {isOnline ? 'ONLINE' : 'OFFLINE'}
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  isOnline ? 'bg-mc-accent-green animate-pulse' : 'bg-mc-accent-red'
+                }`}
+              />
+              {isOnline
+                ? t('online') // 在线状态文案 / Online status copy
+                : t('offline') // 离线状态文案 / Offline status copy
+              }
+            </div>
+            {/* 语言切换器：在当前页面内切换中英文 / Language switcher: toggle between English and Chinese on current page */}
+            <div className="relative">
+              {/* 语言切换主按钮 / Language switch main button */}
+              <button
+                type="button"
+                onClick={() => setIsLocaleMenuOpen((open) => !open)}
+                className="min-h-9 px-3 rounded border border-mc-border bg-mc-bg-tertiary text-xs md:text-sm flex items-center gap-1 text-mc-text-secondary hover:bg-mc-bg"
+                title={currentLocale === 'en' ? t('language.en') : t('language.zh')}
+              >
+                <span>{currentLocale === 'en' ? t('language.en') : t('language.zh')}</span>
+                <span className="text-[10px] opacity-70">▼</span>
+              </button>
+              {/* 下拉菜单：提供具体语言选项 / Dropdown menu with concrete language options */}
+              {isLocaleMenuOpen && (
+                <div className="absolute right-0 mt-1 w-28 rounded border border-mc-border bg-mc-bg-secondary shadow-lg z-10">
+                  <button
+                    type="button"
+                    onClick={() => switchLocale('en')}
+                    className={`w-full px-3 py-2 text-left text-xs md:text-sm hover:bg-mc-bg-tertiary ${
+                      currentLocale === 'en' ? 'text-mc-accent font-medium' : 'text-mc-text-secondary'
+                    }`}
+                  >
+                    {t('language.en') /* 英文显示名称 / English option label */}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchLocale('zh')}
+                    className={`w-full px-3 py-2 text-left text-xs md:text-sm hover:bg-mc-bg-tertiary ${
+                      currentLocale === 'zh' ? 'text-mc-accent font-medium' : 'text-mc-text-secondary'
+                    }`}
+                  >
+                    {t('language.zh') /* 中文显示名称 / Chinese option label */}
+                  </button>
+                </div>
+              )}
             </div>
             <button onClick={() => router.push('/settings')} className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary" title="Settings">
               <Settings className="w-5 h-5" />

@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, ArrowRight, Folder, Users, CheckSquare, Trash2, AlertTriangle, Activity } from 'lucide-react';
+import {useState, useEffect} from 'react';
+import {Plus, ArrowRight, Folder, Users, CheckSquare, Trash2, AlertTriangle, Activity} from 'lucide-react';
 import Link from 'next/link';
-import type { WorkspaceStats } from '@/lib/types';
+import {useTranslations} from 'next-intl'; // 仪表盘文案国际化 / i18n for dashboard copy
+import type {WorkspaceStats} from '@/lib/types';
 
 export function WorkspaceDashboard() {
+  const t = useTranslations('dashboard'); // 工作区总览命名空间 / Namespace for workspace dashboard
   const [workspaces, setWorkspaces] = useState<WorkspaceStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -33,7 +35,9 @@ export function WorkspaceDashboard() {
       <div className="min-h-screen bg-mc-bg flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-pulse">🦞</div>
-          <p className="text-mc-text-secondary">Loading workspaces...</p>
+          <p className="text-mc-text-secondary">
+            {t('loading') /* 加载工作区提示文案 / Loading workspaces hint */}
+          </p>
         </div>
       </div>
     );
@@ -47,7 +51,9 @@ export function WorkspaceDashboard() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <span className="text-2xl">🦞</span>
-              <h1 className="text-xl font-bold">Mission Control</h1>
+              <h1 className="text-xl font-bold">
+                {t('title') /* 仪表盘标题 / Dashboard title */}
+              </h1>
             </div>
             <div className="flex items-center gap-2">
               <Link
@@ -55,14 +61,14 @@ export function WorkspaceDashboard() {
                 className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm"
               >
                 <Activity className="w-4 h-4" />
-                Activity Dashboard
+                {t('activityButton') /* 活动看板按钮文案 / Activity dashboard button copy */}
               </Link>
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="min-h-11 flex items-center gap-2 px-4 bg-mc-accent text-mc-bg rounded-lg font-medium hover:bg-mc-accent/90"
               >
                 <Plus className="w-4 h-4" />
-                New Workspace
+                {t('newWorkspace') /* 新建工作区按钮文案 / New workspace button copy */}
               </button>
             </div>
           </div>
@@ -72,24 +78,28 @@ export function WorkspaceDashboard() {
       {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-2">All Workspaces</h2>
+          <h2 className="text-2xl font-bold mb-2">
+            {t('allWorkspacesTitle') /* 所有工作区标题 / All workspaces title */}
+          </h2>
           <p className="text-mc-text-secondary">
-            Select a workspace to view its mission queue and agents
+            {t('allWorkspacesSubtitle') /* 所有工作区副标题 / All workspaces subtitle */}
           </p>
         </div>
 
         {workspaces.length === 0 ? (
           <div className="text-center py-16">
             <Folder className="w-16 h-16 mx-auto text-mc-text-secondary mb-4" />
-            <h3 className="text-lg font-medium mb-2">No workspaces yet</h3>
+            <h3 className="text-lg font-medium mb-2">
+              {t('emptyTitle') /* 空状态标题 / Empty state title */}
+            </h3>
             <p className="text-mc-text-secondary mb-6">
-              Create your first workspace to get started
+              {t('emptySubtitle') /* 空状态说明 / Empty state description */}
             </p>
             <button
               onClick={() => setShowCreateModal(true)}
               className="px-6 py-3 bg-mc-accent text-mc-bg rounded-lg font-medium hover:bg-mc-accent/90"
             >
-              Create Workspace
+              {t('emptyCreateButton') /* 空状态创建按钮文案 / Empty state create button */}
             </button>
           </div>
         ) : (
@@ -110,7 +120,9 @@ export function WorkspaceDashboard() {
               <div className="w-12 h-12 rounded-full bg-mc-bg-tertiary flex items-center justify-center">
                 <Plus className="w-6 h-6 text-mc-text-secondary" />
               </div>
-              <span className="text-mc-text-secondary font-medium">Add Workspace</span>
+              <span className="text-mc-text-secondary font-medium">
+                {t('addWorkspaceCard') /* 添加工作区卡片文案 / Add workspace card label */}
+              </span>
             </button>
           </div>
         )}
@@ -130,9 +142,10 @@ export function WorkspaceDashboard() {
   );
 }
 
-function WorkspaceCard({ workspace, onDelete }: { workspace: WorkspaceStats; onDelete: (id: string) => void }) {
+function WorkspaceCard({workspace, onDelete}: {workspace: WorkspaceStats; onDelete: (id: string) => void}) {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const t = useTranslations('dashboard'); // 工作区卡片文案国际化 / i18n for workspace card copy
 
   const handleDelete = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -144,10 +157,10 @@ function WorkspaceCard({ workspace, onDelete }: { workspace: WorkspaceStats; onD
         onDelete(workspace.id);
       } else {
         const data = await res.json();
-        alert(data.error || 'Failed to delete workspace');
+        alert(data.error || t('deleteFailed') /* 删除失败提示 / Delete failure alert */);
       }
     } catch {
-      alert('Failed to delete workspace');
+      alert(t('deleteFailed') /* 删除失败提示 / Delete failure alert */);
     } finally {
       setDeleting(false);
       setShowDeleteConfirm(false);
@@ -209,16 +222,21 @@ function WorkspaceCard({ workspace, onDelete }: { workspace: WorkspaceStats; onD
               <AlertTriangle className="w-6 h-6 text-mc-accent-red" />
             </div>
             <div>
-              <h3 className="font-semibold text-lg">Delete Workspace</h3>
-              <p className="text-sm text-mc-text-secondary">This action cannot be undone</p>
+              <h3 className="font-semibold text-lg">
+                {t('deleteTitle') /* 删除弹窗标题 / Delete modal title */}
+              </h3>
+              <p className="text-sm text-mc-text-secondary">
+                {t('deleteDescription') /* 删除不可撤销说明 / Irreversible action description */}
+              </p>
             </div>
           </div>
           
           <p className="text-mc-text-secondary mb-6">
-            Are you sure you want to delete <strong>{workspace.name}</strong>? 
+            {t('deleteConfirmPrefix') /* 删除确认前缀 / Delete confirm prefix */}{' '}
+            <strong>{workspace.name}</strong>?
             {workspace.taskCounts.total > 0 && (
               <span className="block mt-2 text-mc-accent-red">
-                ⚠️ This workspace has {workspace.taskCounts.total} task(s). Delete them first.
+                {t('deleteHasTasks', {count: workspace.taskCounts.total}) /* 仍有任务提示 / Has tasks warning */}
               </span>
             )}
           </p>
@@ -228,14 +246,16 @@ function WorkspaceCard({ workspace, onDelete }: { workspace: WorkspaceStats; onD
               onClick={() => setShowDeleteConfirm(false)}
               className="px-4 py-2 text-mc-text-secondary hover:text-mc-text"
             >
-              Cancel
+              {t('deleteCancel') /* 取消按钮文案 / Cancel button label */}
             </button>
             <button
               onClick={handleDelete}
               disabled={deleting || workspace.taskCounts.total > 0 || workspace.agentCount > 0}
               className="px-4 py-2 bg-mc-accent-red text-white rounded-lg font-medium hover:bg-mc-accent-red/90 disabled:opacity-50"
             >
-              {deleting ? 'Deleting...' : 'Delete Workspace'}
+              {deleting
+                ? t('deleteConfirmButton') /* 删除进行中文案 / Deleting label (reused) */
+                : t('deleteConfirmButton') /* 删除按钮文案 / Delete button label */}
             </button>
           </div>
         </div>
@@ -245,11 +265,12 @@ function WorkspaceCard({ workspace, onDelete }: { workspace: WorkspaceStats; onD
   );
 }
 
-function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateWorkspaceModal({onClose, onCreated}: {onClose: () => void; onCreated: () => void}) {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('📁');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = useTranslations('dashboard'); // 创建工作区弹窗文案 / Create workspace modal copy
 
   const icons = ['📁', '💼', '🏢', '🚀', '💡', '🎯', '📊', '🔧', '🌟', '🏠'];
 
@@ -271,10 +292,10 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
         onCreated();
       } else {
         const data = await res.json();
-        setError(data.error || 'Failed to create workspace');
+        setError(data.error || t('createFailed') /* 创建失败提示 / Create failure message */);
       }
     } catch {
-      setError('Failed to create workspace');
+      setError(t('createFailed') /* 创建失败提示 / Create failure message */);
     } finally {
       setIsSubmitting(false);
     }
@@ -284,13 +305,17 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-3 sm:p-4">
       <div className="bg-mc-bg-secondary border border-mc-border rounded-t-xl sm:rounded-xl w-full max-w-md pb-[env(safe-area-inset-bottom)] sm:pb-0">
         <div className="p-6 border-b border-mc-border">
-          <h2 className="text-lg font-semibold">Create New Workspace</h2>
+          <h2 className="text-lg font-semibold">
+            {t('createModalTitle') /* 创建工作区标题 / Create workspace title */}
+          </h2>
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {/* Icon selector */}
           <div>
-            <label className="block text-sm font-medium mb-2">Icon</label>
+            <label className="block text-sm font-medium mb-2">
+              {t('createIconLabel') /* 图标标签 / Icon label */}
+            </label>
             <div className="flex flex-wrap gap-2">
               {icons.map((i) => (
                 <button
@@ -311,12 +336,14 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
 
           {/* Name input */}
           <div>
-            <label className="block text-sm font-medium mb-2">Name</label>
+            <label className="block text-sm font-medium mb-2">
+              {t('createNameLabel') /* 名称标签 / Name label */}
+            </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="e.g., Acme Corp"
+              placeholder={t('createNamePlaceholder') /* 名称占位符 / Name placeholder */}
               className="w-full bg-mc-bg border border-mc-border rounded-lg px-4 py-2 focus:outline-none focus:border-mc-accent"
               autoFocus
             />
@@ -332,14 +359,16 @@ function CreateWorkspaceModal({ onClose, onCreated }: { onClose: () => void; onC
               onClick={onClose}
               className="px-4 py-2 text-mc-text-secondary hover:text-mc-text"
             >
-              Cancel
+              {t('createCancel') /* 取消按钮文案 / Cancel button label */}
             </button>
             <button
               type="submit"
               disabled={!name.trim() || isSubmitting}
               className="px-6 py-2 bg-mc-accent text-mc-bg rounded-lg font-medium hover:bg-mc-accent/90 disabled:opacity-50"
             >
-              {isSubmitting ? 'Creating...' : 'Create Workspace'}
+              {isSubmitting
+                ? t('createSubmitting') /* 创建中按钮文案 / Creating state label */
+                : t('createSubmit') /* 创建按钮文案 / Create button label */}
             </button>
           </div>
         </form>

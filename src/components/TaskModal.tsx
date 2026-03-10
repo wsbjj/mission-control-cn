@@ -1,16 +1,17 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { X, Save, Trash2, Activity, Package, Bot, ClipboardList, Plus, Users } from 'lucide-react';
-import { useMissionControl } from '@/lib/store';
-import { triggerAutoDispatch, shouldTriggerAutoDispatch } from '@/lib/auto-dispatch';
-import { ActivityLog } from './ActivityLog';
-import { DeliverablesList } from './DeliverablesList';
-import { SessionsList } from './SessionsList';
-import { PlanningTab } from './PlanningTab';
-import { TeamTab } from './TeamTab';
-import { AgentModal } from './AgentModal';
-import type { Task, TaskPriority, TaskStatus } from '@/lib/types';
+import {useState, useCallback} from 'react';
+import {X, Save, Trash2, Activity, Package, Bot, ClipboardList, Plus, Users} from 'lucide-react';
+import {useMissionControl} from '@/lib/store';
+import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
+import {ActivityLog} from './ActivityLog';
+import {DeliverablesList} from './DeliverablesList';
+import {SessionsList} from './SessionsList';
+import {PlanningTab} from './PlanningTab';
+import {TeamTab} from './TeamTab';
+import {AgentModal} from './AgentModal';
+import type {Task, TaskPriority, TaskStatus} from '@/lib/types';
+import {useTranslations} from 'next-intl'; // 任务弹窗文案国际化 / i18n for task modal copy
 
 type TabType = 'overview' | 'planning' | 'team' | 'activity' | 'deliverables' | 'sessions';
 
@@ -20,8 +21,9 @@ interface TaskModalProps {
   workspaceId?: string;
 }
 
-export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
-  const { agents, addTask, updateTask, addEvent } = useMissionControl();
+export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
+  const {agents, addTask, updateTask, addEvent} = useMissionControl();
+  const t = useTranslations('taskModal'); // 任务弹窗命名空间 / Namespace for task modal
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [usePlanningMode, setUsePlanningMode] = useState(false);
@@ -163,7 +165,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
   };
 
   const handleDelete = async () => {
-    if (!task || !confirm(`Delete "${task.title}"?`)) return;
+    if (!task || !confirm(t('deleteConfirm', {title: task.title}))) return; // 删除确认文案 / Delete confirm message
 
     try {
       const res = await fetch(`/api/tasks/${task.id}`, { method: 'DELETE' });
@@ -181,21 +183,24 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
   const priorities: TaskPriority[] = ['low', 'normal', 'high', 'urgent'];
 
   const tabs = [
-    { id: 'overview' as TabType, label: 'Overview', icon: null },
-    { id: 'planning' as TabType, label: 'Planning', icon: <ClipboardList className="w-4 h-4" /> },
-    { id: 'team' as TabType, label: 'Team', icon: <Users className="w-4 h-4" /> },
-    { id: 'activity' as TabType, label: 'Activity', icon: <Activity className="w-4 h-4" /> },
-    { id: 'deliverables' as TabType, label: 'Deliverables', icon: <Package className="w-4 h-4" /> },
-    { id: 'sessions' as TabType, label: 'Sessions', icon: <Bot className="w-4 h-4" /> },
+    {id: 'overview' as TabType, labelKey: 'tabOverview', icon: null},
+    {id: 'planning' as TabType, labelKey: 'tabPlanning', icon: <ClipboardList className="w-4 h-4" />},
+    {id: 'team' as TabType, labelKey: 'tabTeam', icon: <Users className="w-4 h-4" />},
+    {id: 'activity' as TabType, labelKey: 'tabActivity', icon: <Activity className="w-4 h-4" />},
+    {id: 'deliverables' as TabType, labelKey: 'tabDeliverables', icon: <Package className="w-4 h-4" />},
+    {id: 'sessions' as TabType, labelKey: 'tabSessions', icon: <Bot className="w-4 h-4" />},
   ];
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-3 sm:p-4">
       <div className="bg-mc-bg-secondary border border-mc-border rounded-t-xl sm:rounded-lg w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col pb-[env(safe-area-inset-bottom)] sm:pb-0">
-        {/* Header */}
+        {/* Header / 标题栏 */}
         <div className="flex items-center justify-between p-4 border-b border-mc-border flex-shrink-0">
           <h2 className="text-lg font-semibold">
-            {task ? task.title : 'Create New Task'}
+            {task
+              ? `${t('editTitlePrefix')} ${task.title}` // 编辑任务标题 / Edit task title
+              : t('createTitle') // 新建任务标题 / Create new task title
+            }
           </h2>
           <button
             onClick={onClose}
@@ -205,7 +210,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
           </button>
         </div>
 
-        {/* Tabs - only show for existing tasks */}
+        {/* Tabs - only show for existing tasks / 仅在编辑任务时展示标签页 */}
         {task && (
           <div className="flex border-b border-mc-border flex-shrink-0 overflow-x-auto">
             {tabs.map((tab) => (
@@ -219,7 +224,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                 }`}
               >
                 {tab.icon}
-                {tab.label}
+                {t(tab.labelKey as any) /* 标签名称 / Tab label */}
               </button>
             ))}
           </div>
@@ -227,10 +232,10 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
 
         {/* Content Area */}
         <div className="flex-1 overflow-y-auto p-4">
-          {/* Overview Tab */}
+          {/* Overview Tab / 概览页签 */}
           {activeTab === 'overview' && (
             <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Title */}
+          {/* Title / 标题输入 */}
           <div>
             <label className="block text-sm font-medium mb-1">Title</label>
             <input
@@ -243,7 +248,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
             />
           </div>
 
-          {/* Description */}
+          {/* Description / 描述输入 */}
           <div>
             <label className="block text-sm font-medium mb-1">Description</label>
             <textarea
@@ -255,7 +260,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
             />
           </div>
 
-          {/* Planning Mode Toggle - only for new tasks */}
+          {/* Planning Mode Toggle - only for new tasks / 规划模式开关（仅新任务） */}
           {!task && (
             <div className="p-3 bg-mc-bg rounded-lg border border-mc-border">
               <label className="flex items-start gap-3 cursor-pointer">
@@ -268,19 +273,17 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                 <div>
                   <span className="font-medium text-sm flex items-center gap-2">
                     <ClipboardList className="w-4 h-4 text-mc-accent" />
-                    Enable Planning Mode
+                    {t('planningToggleLabel') /* 规划模式标题 / Planning mode label */}
                   </span>
                   <p className="text-xs text-mc-text-secondary mt-1">
-                    Best for complex projects that need detailed requirements. 
-                    You&apos;ll answer a few questions to define scope, goals, and constraints 
-                    before work begins. Skip this for quick, straightforward tasks.
+                    {t('planningToggleDescription') /* 规划模式说明 / Planning mode description */}
                   </p>
                 </div>
               </label>
             </div>
           )}
 
-          {/* Assigned Agent */}
+          {/* Assigned Agent / 分配智能体 */}
           <div>
             <label className="block text-sm font-medium mb-1">Assign to</label>
             <select
@@ -307,7 +310,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            {/* Priority */}
+            {/* Priority / 优先级 */}
             <div>
               <label className="block text-sm font-medium mb-1">Priority</label>
               <select
@@ -323,7 +326,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
               </select>
             </div>
 
-            {/* Due Date */}
+            {/* Due Date / 截止时间 */}
             <div>
               <label className="block text-sm font-medium mb-1">Due Date</label>
               <input
@@ -373,7 +376,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
         </div>
 
         {/* Footer - only show on overview tab */}
-        {activeTab === 'overview' && (
+      {activeTab === 'overview' && (
           <div className="flex items-center justify-between p-4 border-t border-mc-border flex-shrink-0">
             <div className="flex gap-2">
               {task && (
@@ -384,7 +387,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                     className="min-h-11 flex items-center gap-2 px-3 py-2 text-mc-accent-red hover:bg-mc-accent-red/10 rounded text-sm"
                   >
                     <Trash2 className="w-4 h-4" />
-                    Delete
+                    {t('deleteButton') /* 删除按钮文案 / Delete button label */}
                   </button>
                 </>
               )}
@@ -395,7 +398,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                 onClick={onClose}
                 className="min-h-11 px-4 py-2 text-sm text-mc-text-secondary hover:text-mc-text"
               >
-                Cancel
+                {t('cancel') /* 取消按钮 / Cancel button */}
               </button>
               {!task && (
                 <button
@@ -404,7 +407,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                   className="min-h-11 flex items-center gap-2 px-4 py-2 border border-mc-accent text-mc-accent rounded text-sm font-medium hover:bg-mc-accent/10 disabled:opacity-50"
                 >
                   <Plus className="w-4 h-4" />
-                  {isSubmitting ? 'Saving...' : 'Save & New'}
+                  {isSubmitting ? t('saveAndNewSubmitting') : t('saveAndNewIdle') /* 保存并新建按钮 / Save & New button */}
                 </button>
               )}
               <button
@@ -413,7 +416,7 @@ export function TaskModal({ task, onClose, workspaceId }: TaskModalProps) {
                 className="min-h-11 flex items-center gap-2 px-4 py-2 bg-mc-accent text-mc-bg rounded text-sm font-medium hover:bg-mc-accent/90 disabled:opacity-50"
               >
                 <Save className="w-4 h-4" />
-                {isSubmitting ? 'Saving...' : 'Save'}
+                {isSubmitting ? t('saveSubmitting') : t('saveIdle') /* 保存按钮 / Save button */}
               </button>
             </div>
           </div>

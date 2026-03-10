@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { ChevronRight, ChevronLeft, Clock } from 'lucide-react';
-import { useMissionControl } from '@/lib/store';
-import type { Event } from '@/lib/types';
-import { formatDistanceToNow } from 'date-fns';
+import {useState} from 'react';
+import {ChevronRight, ChevronLeft, Clock} from 'lucide-react';
+import {useMissionControl} from '@/lib/store';
+import type {Event} from '@/lib/types';
+import {formatDistanceToNow} from 'date-fns';
+import {useTranslations} from 'next-intl'; // 实时事件流文案国际化 / i18n for live feed copy
 
 type FeedFilter = 'all' | 'tasks' | 'agents';
 
@@ -13,8 +14,9 @@ interface LiveFeedProps {
   isPortrait?: boolean;
 }
 
-export function LiveFeed({ mobileMode = false, isPortrait = true }: LiveFeedProps) {
-  const { events } = useMissionControl();
+export function LiveFeed({mobileMode = false, isPortrait = true}: LiveFeedProps) {
+  const {events} = useMissionControl();
+  const t = useTranslations('liveFeed'); // 实时事件流命名空间 / Namespace for live feed
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -40,12 +42,16 @@ export function LiveFeed({ mobileMode = false, isPortrait = true }: LiveFeedProp
             <button
               onClick={toggleMinimize}
               className="p-1 rounded hover:bg-mc-bg-tertiary text-mc-text-secondary hover:text-mc-text transition-colors"
-              aria-label={effectiveMinimized ? 'Expand feed' : 'Minimize feed'}
+              aria-label={effectiveMinimized ? t('expand') : t('minimize') /* 展开/收起无障碍标签 / ARIA labels for expand/minimize */}
             >
               {effectiveMinimized ? <ChevronLeft className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
           )}
-          {!effectiveMinimized && <span className="text-sm font-medium uppercase tracking-wider">Live Feed</span>}
+          {!effectiveMinimized && (
+            <span className="text-sm font-medium uppercase tracking-wider">
+              {t('title') /* 实时事件流标题 / Live feed title */}
+            </span>
+          )}
         </div>
 
         {!effectiveMinimized && (
@@ -58,7 +64,12 @@ export function LiveFeed({ mobileMode = false, isPortrait = true }: LiveFeedProp
                   filter === tab ? 'bg-mc-accent text-mc-bg font-medium' : 'text-mc-text-secondary hover:bg-mc-bg-tertiary'
                 }`}
               >
-                {tab}
+                {tab === 'all'
+                  ? t('tabAll') // 全部标签 / "All" tab label
+                  : tab === 'tasks'
+                  ? t('tabTasks') // 任务标签 / "Tasks" tab label
+                  : t('tabAgents') // 智能体标签 / "Agents" tab label
+                }
               </button>
             ))}
           </div>
@@ -68,7 +79,9 @@ export function LiveFeed({ mobileMode = false, isPortrait = true }: LiveFeedProp
       {!effectiveMinimized && (
         <div className="flex-1 overflow-y-auto p-2 space-y-1 pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           {filteredEvents.length === 0 ? (
-            <div className="text-center py-8 text-mc-text-secondary text-sm">No events yet</div>
+            <div className="text-center py-8 text-mc-text-secondary text-sm">
+              {t('empty') /* 暂无事件文案 / No events yet message */}
+            </div>
           ) : (
             filteredEvents.map((event) => <EventItem key={event.id} event={event} />)
           )}

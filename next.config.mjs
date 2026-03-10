@@ -1,3 +1,7 @@
+import createNextIntlPlugin from 'next-intl/plugin'; // 引入 next-intl 插件 / Import next-intl plugin
+
+const withNextIntl = createNextIntlPlugin(); // 使用默认路径 i18n/request.ts / Use default i18n/request.ts path
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
@@ -36,4 +40,4 @@ const nextConfig = {
   },
 };
 
-export default nextConfig;
+export default withNextIntl(nextConfig); // 包裹配置以启用 next-intl / Wrap config to enable next-intl

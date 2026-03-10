@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { X, Save, Trash2 } from 'lucide-react';
-import { useMissionControl } from '@/lib/store';
-import type { Agent, AgentStatus } from '@/lib/types';
+import {useState, useEffect} from 'react';
+import {X, Save, Trash2} from 'lucide-react';
+import {useMissionControl} from '@/lib/store';
+import type {Agent, AgentStatus} from '@/lib/types';
+import {useTranslations} from 'next-intl'; // 智能体弹窗文案国际化 / i18n for agent modal copy
 
 interface AgentModalProps {
   agent?: Agent;
@@ -14,8 +15,9 @@ interface AgentModalProps {
 
 const EMOJI_OPTIONS = ['🤖', '🦞', '💻', '🔍', '✍️', '🎨', '📊', '🧠', '⚡', '🚀', '🎯', '🔧'];
 
-export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: AgentModalProps) {
-  const { addAgent, updateAgent, agents } = useMissionControl();
+export function AgentModal({agent, onClose, workspaceId, onAgentCreated}: AgentModalProps) {
+  const {addAgent, updateAgent, agents} = useMissionControl();
+  const t = useTranslations('agentModal'); // 智能体弹窗命名空间 / Namespace for agent modal
   const [activeTab, setActiveTab] = useState<'info' | 'soul' | 'user' | 'agents'>('info');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -35,7 +37,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
     model: agent?.model || '',
   });
 
-  // Load available models from OpenClaw config
+  // Load available models from OpenClaw config / 加载可用模型列表
   useEffect(() => {
     const loadModels = async () => {
       try {
@@ -96,7 +98,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
   };
 
   const handleDelete = async () => {
-    if (!agent || !confirm(`Delete ${agent.name}?`)) return;
+    if (!agent || !confirm(t('deleteConfirm', {name: agent.name}))) return; // 删除确认文案 / Delete confirm message
 
     try {
       const res = await fetch(`/api/agents/${agent.id}`, { method: 'DELETE' });
@@ -114,19 +116,22 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
   };
 
   const tabs = [
-    { id: 'info', label: 'Info' },
-    { id: 'soul', label: 'SOUL.md' },
-    { id: 'user', label: 'USER.md' },
-    { id: 'agents', label: 'AGENTS.md' },
+    {id: 'info', labelKey: 'tabInfo'},
+    {id: 'soul', labelKey: 'tabSoul'},
+    {id: 'user', labelKey: 'tabUser'},
+    {id: 'agents', labelKey: 'tabAgents'},
   ] as const;
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-3 sm:p-4">
       <div className="bg-mc-bg-secondary border border-mc-border rounded-t-xl sm:rounded-lg w-full max-w-2xl max-h-[92vh] sm:max-h-[90vh] flex flex-col pb-[env(safe-area-inset-bottom)] sm:pb-0">
-        {/* Header */}
+        {/* Header / 标题栏 */}
         <div className="flex items-center justify-between p-4 border-b border-mc-border">
           <h2 className="text-lg font-semibold">
-            {agent ? `Edit ${agent.name}` : 'Create New Agent'}
+            {agent
+              ? `${t('editTitlePrefix')} ${agent.name}` // 编辑智能体标题 / Edit agent title
+              : t('createTitle') // 新建智能体标题 / Create new agent title
+            }
           </h2>
           <button
             onClick={onClose}
@@ -136,7 +141,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
           </button>
         </div>
 
-        {/* Tabs */}
+        {/* Tabs / 顶部标签页 */}
         <div className="flex border-b border-mc-border overflow-x-auto">
           {tabs.map((tab) => (
             <button
@@ -148,7 +153,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
                   : 'border-transparent text-mc-text-secondary hover:text-mc-text'
               }`}
             >
-              {tab.label}
+              {t(tab.labelKey) /* 标签名称 / Tab label */}
             </button>
           ))}
         </div>
@@ -157,9 +162,11 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-4">
           {activeTab === 'info' && (
             <div className="space-y-4">
-              {/* Avatar Selection */}
+              {/* Avatar Selection / 头像选择 */}
               <div>
-                <label className="block text-sm font-medium mb-2">Avatar</label>
+                <label className="block text-sm font-medium mb-2">
+                  {t('fieldAvatar') /* 头像标签 / Avatar label */}
+                </label>
                 <div className="flex flex-wrap gap-2">
                   {EMOJI_OPTIONS.map((emoji) => (
                     <button
@@ -178,98 +185,113 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
                 </div>
               </div>
 
-              {/* Name */}
+              {/* Name / 名称 */}
               <div>
-                <label className="block text-sm font-medium mb-1">Name</label>
+                <label className="block text-sm font-medium mb-1">
+                  {t('fieldName') /* 名称标签 / Name label */}
+                </label>
                 <input
                   type="text"
                   value={form.name}
-                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  onChange={(e) => setForm({...form, name: e.target.value})}
                   required
                   className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-                  placeholder="Agent name"
+                  placeholder={t('fieldNamePlaceholder') /* 名称占位符 / Name placeholder */}
                 />
               </div>
 
-              {/* Role */}
+              {/* Role / 角色 */}
               <div>
-                <label className="block text-sm font-medium mb-1">Role</label>
+                <label className="block text-sm font-medium mb-1">
+                  {t('fieldRole') /* 角色标签 / Role label */}
+                </label>
                 <input
                   type="text"
                   value={form.role}
-                  onChange={(e) => setForm({ ...form, role: e.target.value })}
+                  onChange={(e) => setForm({...form, role: e.target.value})}
                   required
                   className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-                  placeholder="e.g., Code & Automation"
+                  placeholder={t('fieldRolePlaceholder') /* 角色占位符 / Role placeholder */}
                 />
               </div>
 
-              {/* Description */}
+              {/* Description / 描述 */}
               <div>
-                <label className="block text-sm font-medium mb-1">Description</label>
+                <label className="block text-sm font-medium mb-1">
+                  {t('fieldDescription') /* 描述标签 / Description label */}
+                </label>
                 <textarea
                   value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  onChange={(e) => setForm({...form, description: e.target.value})}
                   rows={2}
                   className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-none"
-                  placeholder="What does this agent do?"
+                  placeholder={t('fieldDescriptionPlaceholder') /* 描述占位符 / Description placeholder */}
                 />
               </div>
 
-              {/* Status */}
+              {/* Status / 状态 */}
               <div>
-                <label className="block text-sm font-medium mb-1">Status</label>
+                <label className="block text-sm font-medium mb-1">
+                  {t('fieldStatus') /* 状态标签 / Status label */}
+                </label>
                 <select
                   value={form.status}
-                  onChange={(e) => setForm({ ...form, status: e.target.value as AgentStatus })}
+                  onChange={(e) => setForm({...form, status: e.target.value as AgentStatus})}
                   className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
                 >
-                  <option value="standby">Standby</option>
-                  <option value="working">Working</option>
-                  <option value="offline">Offline</option>
+                  <option value="standby">{t('statusStandby') /* 待命状态 / Standby */}</option>
+                  <option value="working">{t('statusWorking') /* 工作中状态 / Working */}</option>
+                  <option value="offline">{t('statusOffline') /* 离线状态 / Offline */}</option>
                 </select>
               </div>
 
-              {/* Master Toggle */}
+              {/* Master Toggle / 主控开关 */}
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
                   id="is_master"
                   checked={form.is_master}
-                  onChange={(e) => setForm({ ...form, is_master: e.target.checked })}
+                  onChange={(e) => setForm({...form, is_master: e.target.checked})}
                   className="w-4 h-4"
                 />
                 <label htmlFor="is_master" className="text-sm">
-                  Master Orchestrator (can coordinate other agents)
+                  {t('fieldIsMaster') /* 主控说明 / Master orchestrator label */}
                 </label>
               </div>
 
-              {/* Model Selection */}
+              {/* Model Selection / 模型选择 */}
               <div>
                 <label className="block text-sm font-medium mb-1">
-                  Model
+                  {t('fieldModel') /* 模型标签 / Model label */}
                   {defaultModel && form.model === defaultModel && (
-                    <span className="ml-2 text-xs text-mc-text-secondary">(Default)</span>
+                    <span className="ml-2 text-xs text-mc-text-secondary">
+                      {t('modelDefaultTag') /* 默认标签 / Default tag */}
+                    </span>
                   )}
                 </label>
                 {modelsLoading ? (
-                  <div className="text-sm text-mc-text-secondary">Loading available models...</div>
+                  <div className="text-sm text-mc-text-secondary">
+                    {t('modelLoading') /* 加载模型提示 / Loading models message */}
+                  </div>
                 ) : (
                   <select
                     value={form.model}
-                    onChange={(e) => setForm({ ...form, model: e.target.value })}
+                    onChange={(e) => setForm({...form, model: e.target.value})}
                     className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
                   >
-                    <option value="">-- Use Default Model --</option>
+                    <option value="">
+                      {t('modelUseDefault') /* 使用默认模型选项 / Use default model option */}
+                    </option>
                     {availableModels.map((model) => (
                       <option key={model} value={model}>
-                        {model}{defaultModel === model ? ' (Default)' : ''}
+                        {model}
+                        {defaultModel === model ? ` ${t('modelDefaultTag')}` : ''}
                       </option>
                     ))}
                   </select>
                 )}
                 <p className="text-xs text-mc-text-secondary mt-1">
-                  AI model used by this agent. Leave empty to use OpenClaw default.
+                  {t('modelHelp') /* 模型说明 / Model help text */}
                 </p>
               </div>
             </div>
@@ -278,14 +300,14 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
           {activeTab === 'soul' && (
             <div>
               <label className="block text-sm font-medium mb-2">
-                SOUL.md - Agent Personality & Identity
+                {t('fieldSoulLabel') /* SOUL.md 标签 / SOUL.md label */}
               </label>
               <textarea
                 value={form.soul_md}
-                onChange={(e) => setForm({ ...form, soul_md: e.target.value })}
+                onChange={(e) => setForm({...form, soul_md: e.target.value})}
                 rows={15}
                 className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-mc-accent resize-none"
-                placeholder="# Agent Name&#10;&#10;Define this agent's personality, values, and communication style..."
+                placeholder={t('fieldSoulPlaceholder') /* SOUL.md 占位符 / SOUL.md placeholder */}
               />
             </div>
           )}
@@ -293,14 +315,14 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
           {activeTab === 'user' && (
             <div>
               <label className="block text-sm font-medium mb-2">
-                USER.md - Context About the Human
+                {t('fieldUserLabel') /* USER.md 标签 / USER.md label */}
               </label>
               <textarea
                 value={form.user_md}
-                onChange={(e) => setForm({ ...form, user_md: e.target.value })}
+                onChange={(e) => setForm({...form, user_md: e.target.value})}
                 rows={15}
                 className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-mc-accent resize-none"
-                placeholder="# User Context&#10;&#10;Information about the human this agent works with..."
+                placeholder={t('fieldUserPlaceholder') /* USER.md 占位符 / USER.md placeholder */}
               />
             </div>
           )}
@@ -308,20 +330,20 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
           {activeTab === 'agents' && (
             <div>
               <label className="block text-sm font-medium mb-2">
-                AGENTS.md - Team Awareness
+                {t('fieldAgentsLabel') /* AGENTS.md 标签 / AGENTS.md label */}
               </label>
               <textarea
                 value={form.agents_md}
-                onChange={(e) => setForm({ ...form, agents_md: e.target.value })}
+                onChange={(e) => setForm({...form, agents_md: e.target.value})}
                 rows={15}
                 className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm font-mono focus:outline-none focus:border-mc-accent resize-none"
-                placeholder="# Team Roster&#10;&#10;Information about other agents this agent works with..."
+                placeholder={t('fieldAgentsPlaceholder') /* AGENTS.md 占位符 / AGENTS.md placeholder */}
               />
             </div>
           )}
         </form>
 
-        {/* Footer */}
+        {/* Footer / 底部操作栏 */}
         <div className="flex items-center justify-between p-4 border-t border-mc-border">
           <div>
             {agent && (
@@ -331,7 +353,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
                 className="min-h-11 flex items-center gap-2 px-3 py-2 text-mc-accent-red hover:bg-mc-accent-red/10 rounded text-sm"
               >
                 <Trash2 className="w-4 h-4" />
-                Delete
+                {t('deleteButton') /* 删除按钮文案 / Delete button label */}
               </button>
             )}
           </div>
@@ -341,7 +363,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
               onClick={onClose}
               className="min-h-11 px-4 py-2 text-sm text-mc-text-secondary hover:text-mc-text"
             >
-              Cancel
+              {t('cancel') /* 取消按钮 / Cancel button */}
             </button>
             <button
               onClick={handleSubmit}
@@ -349,7 +371,7 @@ export function AgentModal({ agent, onClose, workspaceId, onAgentCreated }: Agen
               className="min-h-11 flex items-center gap-2 px-4 py-2 bg-mc-accent text-mc-bg rounded text-sm font-medium hover:bg-mc-accent/90 disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              {isSubmitting ? 'Saving...' : 'Save'}
+              {isSubmitting ? t('saveSubmitting') : t('saveIdle') /* 保存按钮 / Save button */}
             </button>
           </div>
         </div>

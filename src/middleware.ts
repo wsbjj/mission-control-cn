@@ -77,6 +77,10 @@ export function middleware(request: NextRequest) {
           {status: 403}
         );
       }
+    }
+
+    // Webhook routes use their own HMAC signature validation — bypass token auth
+    if (pathname.startsWith('/api/webhooks/')) {
       return NextResponse.next();
     }
 

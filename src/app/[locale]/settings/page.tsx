@@ -8,7 +8,7 @@
 import {useState, useEffect} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon} from 'lucide-react';
+import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon, Home} from 'lucide-react';
 import {getConfig, updateConfig, resetConfig, type MissionControlConfig} from '@/lib/config';
 
 export default function SettingsPage() {
@@ -51,9 +51,10 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChange = (field: keyof MissionControlConfig, value: string) => {
-    if (!config) return; // 无配置时不处理变更 / Skip when config is not loaded
-    setConfig({...config, [field]: value}); // 更新对应字段值 / Update specific config field
+  // 使用泛型以支持 string 与 boolean（如 Kanban 复选框）/ Generic to support string and boolean (e.g. Kanban checkbox)
+  const handleChange = <K extends keyof MissionControlConfig>(field: K, value: MissionControlConfig[K]) => {
+    if (!config) return;
+    setConfig({...config, [field]: value});
   };
 
   if (!config) {
@@ -206,6 +207,32 @@ export default function SettingsPage() {
               </p>
             </div>
           </div>
+        </section>
+
+        {/* Kanban UX：main 新增，已做国际化 / Kanban UX from main, localized */}
+        <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
+          <div className="flex items-center gap-2 mb-4">
+            <Home className="w-5 h-5 text-mc-accent" />
+            <h2 className="text-xl font-semibold text-mc-text">{t('kanbanUX')}</h2>
+          </div>
+          <p className="text-sm text-mc-text-secondary mb-4">
+            {t('kanbanUXDesc')}
+          </p>
+
+          <label className="flex items-start gap-3 p-3 bg-mc-bg border border-mc-border rounded cursor-pointer">
+            <input
+              type="checkbox"
+              checked={config.kanbanCompactEmptyColumns}
+              onChange={(e) => handleChange('kanbanCompactEmptyColumns', e.target.checked)}
+              className="mt-1 h-4 w-4 accent-[var(--mc-accent)]"
+            />
+            <div>
+              <div className="text-sm font-medium text-mc-text">{t('kanbanCompactEmptyColumns')}</div>
+              <div className="text-xs text-mc-text-secondary mt-1">
+                {t('kanbanCompactEmptyColumnsDesc')}
+              </div>
+            </div>
+          </label>
         </section>
 
         {/* 环境变量说明区块 / Environment variables note section */}

@@ -241,7 +241,9 @@ export function AgentsSidebar({workspaceId, mobileMode = false, isPortrait = tru
                   </div>
                 </div>
 
-                <span className={`text-xs px-2 py-0.5 rounded uppercase ${getStatusBadge(agent.status)}`}>{agent.status}</span>
+                <span className={`text-xs px-2 py-0.5 rounded uppercase ${getStatusBadge(agent.status)}`}>
+                  {agent.status === 'working' ? t('statusWorking') : agent.status === 'offline' ? t('statusOffline') : t('statusStandby')}
+                </span>
               </button>
 
               {!!agent.is_master && (

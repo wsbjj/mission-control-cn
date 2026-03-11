@@ -237,26 +237,26 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
             <form onSubmit={handleSubmit} className="space-y-4">
           {/* Title / 标题输入 */}
           <div>
-            <label className="block text-sm font-medium mb-1">Title</label>
+            <label className="block text-sm font-medium mb-1">{t('fieldTitle')}</label>
             <input
               type="text"
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
               required
               className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-              placeholder="What needs to be done?"
+              placeholder={t('fieldTitlePlaceholder')}
             />
           </div>
 
           {/* Description / 描述输入 */}
           <div>
-            <label className="block text-sm font-medium mb-1">Description</label>
+            <label className="block text-sm font-medium mb-1">{t('fieldDescription')}</label>
             <textarea
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
               rows={3}
               className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-none"
-              placeholder="Add details..."
+              placeholder={t('fieldDescriptionPlaceholder')}
             />
           </div>
 
@@ -285,7 +285,7 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
 
           {/* Assigned Agent / 分配智能体 */}
           <div>
-            <label className="block text-sm font-medium mb-1">Assign to</label>
+            <label className="block text-sm font-medium mb-1">{t('fieldAssignTo')}</label>
             <select
               value={form.assigned_agent_id}
               onChange={(e) => {
@@ -297,14 +297,14 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
               }}
               className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
             >
-              <option value="">Unassigned</option>
+              <option value="">{t('assignUnassigned')}</option>
               {agents.map((agent) => (
                 <option key={agent.id} value={agent.id}>
                   {agent.avatar_emoji} {agent.name} - {agent.role}
                 </option>
               ))}
               <option value="__add_new__" className="text-mc-accent">
-                ➕ Add new agent...
+                ➕ {t('assignAddNewAgent')}
               </option>
             </select>
           </div>
@@ -312,7 +312,7 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
           <div className="grid grid-cols-2 gap-4">
             {/* Priority / 优先级 */}
             <div>
-              <label className="block text-sm font-medium mb-1">Priority</label>
+              <label className="block text-sm font-medium mb-1">{t('fieldPriority')}</label>
               <select
                 value={form.priority}
                 onChange={(e) => setForm({ ...form, priority: e.target.value as TaskPriority })}
@@ -320,7 +320,7 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
               >
                 {priorities.map((p) => (
                   <option key={p} value={p}>
-                    {p.toUpperCase()}
+                    {p === 'low' ? t('priorityLow') : p === 'normal' ? t('priorityNormal') : p === 'high' ? t('priorityHigh') : t('priorityUrgent')}
                   </option>
                 ))}
               </select>
@@ -328,7 +328,7 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
 
             {/* Due Date / 截止时间 */}
             <div>
-              <label className="block text-sm font-medium mb-1">Due Date</label>
+              <label className="block text-sm font-medium mb-1">{t('fieldDueDate')}</label>
               <input
                 type="datetime-local"
                 value={form.due_date}

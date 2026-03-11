@@ -7,10 +7,12 @@
 
 import {useState, useEffect} from 'react';
 import {useRouter} from 'next/navigation';
+import {useTranslations} from 'next-intl';
 import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon} from 'lucide-react';
 import {getConfig, updateConfig, resetConfig, type MissionControlConfig} from '@/lib/config';
 
 export default function SettingsPage() {
+  const t = useTranslations('settings');
   const router = useRouter(); // 路由实例，用于在设置页内跳转 / Router instance for navigation inside settings page
   const [config, setConfig] = useState<MissionControlConfig | null>(null); // 当前配置状态 / Current configuration state
   const [isSaving, setIsSaving] = useState(false); // 保存中状态 / Saving state
@@ -33,7 +35,7 @@ export default function SettingsPage() {
       setSaveSuccess(true); // 标记保存成功 / Mark as saved successfully
       setTimeout(() => setSaveSuccess(false), 3000); // 一段时间后清除提示 / Clear success message after delay
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save settings'); // 显示错误信息 / Show error message
+      setError(err instanceof Error ? err.message : t('saveFailed')); // 显示错误信息 / Show error message
     } finally {
       setIsSaving(false); // 结束保存状态 / End saving state
     }
@@ -41,7 +43,7 @@ export default function SettingsPage() {
 
   const handleReset = () => {
     // 重置为默认设置的确认提示 / Confirmation dialog for resetting to defaults
-    if (confirm('Reset all settings to defaults? This cannot be undone.')) {
+    if (confirm(t('resetConfirm'))) {
       resetConfig(); // 重置配置 / Reset configuration
       setConfig(getConfig()); // 重新加载默认配置 / Reload default configuration
       setSaveSuccess(true); // 提示重置成功 / Indicate reset success
@@ -58,7 +60,7 @@ export default function SettingsPage() {
     // 加载中占位界面 / Loading placeholder view
     return (
       <div className="min-h-screen bg-mc-bg flex items-center justify-center">
-        <div className="text-mc-text-secondary">Loading settings...</div>
+        <div className="text-mc-text-secondary">{t('loading')}</div>
       </div>
     );
   }
@@ -72,12 +74,12 @@ export default function SettingsPage() {
             <button
               onClick={() => router.push('/')}
               className="p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary"
-              title="Back to Mission Control"
+              title={t('backTitle')}
             >
-              ← Back
+              {t('back')}
             </button>
             <Settings className="w-6 h-6 text-mc-accent" />
-            <h1 className="text-2xl font-bold text-mc-text">Settings</h1>
+            <h1 className="text-2xl font-bold text-mc-text">{t('title')}</h1>
           </div>
 
           <div className="flex items-center gap-2">
@@ -86,7 +88,7 @@ export default function SettingsPage() {
               className="px-4 py-2 border border-mc-border rounded hover:bg-mc-bg-tertiary text-mc-text-secondary flex items-center gap-2"
             >
               <RotateCcw className="w-4 h-4" />
-              Reset to Defaults
+              {t('resetToDefaults')}
             </button>
             <button
               onClick={handleSave}
@@ -94,7 +96,7 @@ export default function SettingsPage() {
               className="px-4 py-2 bg-mc-accent text-mc-bg rounded hover:bg-mc-accent/90 flex items-center gap-2 disabled:opacity-50"
             >
               <Save className="w-4 h-4" />
-              {isSaving ? 'Saving...' : 'Save Changes'}
+              {isSaving ? t('saving') : t('saveChanges')}
             </button>
           </div>
         </div>
@@ -105,7 +107,7 @@ export default function SettingsPage() {
         {/* 保存成功提示 / Success message */}
         {saveSuccess && (
           <div className="mb-6 p-4 bg-green-500/10 border border-green-500/30 rounded text-green-400">
-            ✓ Settings saved successfully
+            {t('saveSuccess')}
           </div>
         )}
 
@@ -120,58 +122,58 @@ export default function SettingsPage() {
         <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
           <div className="flex items-center gap-2 mb-4">
             <FolderOpen className="w-5 h-5 text-mc-accent" />
-            <h2 className="text-xl font-semibold text-mc-text">Workspace Paths</h2>
+            <h2 className="text-xl font-semibold text-mc-text">{t('workspacePaths')}</h2>
           </div>
           <p className="text-sm text-mc-text-secondary mb-4">
-            Configure where Mission Control stores projects and deliverables.
+            {t('workspacePathsDesc')}
           </p>
 
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-mc-text mb-2">
-                Workspace Base Path
+                {t('workspaceBasePath')}
               </label>
               <input
                 type="text"
                 value={config.workspaceBasePath}
                 onChange={(e) => handleChange('workspaceBasePath', e.target.value)}
-                placeholder="~/Documents/Shared"
+                placeholder={t('workspaceBasePathPlaceholder')}
                 className="w-full px-4 py-2 bg-mc-bg border border-mc-border rounded text-mc-text focus:border-mc-accent focus:outline-none"
               />
               <p className="text-xs text-mc-text-secondary mt-1">
-                Base directory for all Mission Control files. Use ~ for home directory.
+                {t('workspaceBasePathHelp')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-mc-text mb-2">
-                Projects Path
+                {t('projectsPath')}
               </label>
               <input
                 type="text"
                 value={config.projectsPath}
                 onChange={(e) => handleChange('projectsPath', e.target.value)}
-                placeholder="~/Documents/Shared/projects"
+                placeholder={t('projectsPathPlaceholder')}
                 className="w-full px-4 py-2 bg-mc-bg border border-mc-border rounded text-mc-text focus:border-mc-accent focus:outline-none"
               />
               <p className="text-xs text-mc-text-secondary mt-1">
-                Directory where project folders are created. Each project gets its own folder.
+                {t('projectsPathHelp')}
               </p>
             </div>
 
             <div>
               <label className="block text-sm font-medium text-mc-text mb-2">
-                Default Project Name
+                {t('defaultProjectName')}
               </label>
               <input
                 type="text"
                 value={config.defaultProjectName}
                 onChange={(e) => handleChange('defaultProjectName', e.target.value)}
-                placeholder="mission-control"
+                placeholder={t('defaultProjectNamePlaceholder')}
                 className="w-full px-4 py-2 bg-mc-bg border border-mc-border rounded text-mc-text focus:border-mc-accent focus:outline-none"
               />
               <p className="text-xs text-mc-text-secondary mt-1">
-                Default name for new projects. Can be changed per project.
+                {t('defaultProjectNameHelp')}
               </p>
             </div>
           </div>
@@ -181,26 +183,26 @@ export default function SettingsPage() {
         <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
           <div className="flex items-center gap-2 mb-4">
             <LinkIcon className="w-5 h-5 text-mc-accent" />
-            <h2 className="text-xl font-semibold text-mc-text">API Configuration</h2>
+            <h2 className="text-xl font-semibold text-mc-text">{t('apiConfig')}</h2>
           </div>
           <p className="text-sm text-mc-text-secondary mb-4">
-            Configure Mission Control API URL for agent orchestration.
+            {t('apiConfigDesc')}
           </p>
 
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-mc-text mb-2">
-                Mission Control URL
+                {t('missionControlUrl')}
               </label>
               <input
                 type="text"
                 value={config.missionControlUrl}
                 onChange={(e) => handleChange('missionControlUrl', e.target.value)}
-                placeholder="http://localhost:4000"
+                placeholder={t('missionControlUrlPlaceholder')}
                 className="w-full px-4 py-2 bg-mc-bg border border-mc-border rounded text-mc-text focus:border-mc-accent focus:outline-none"
               />
               <p className="text-xs text-mc-text-secondary mt-1">
-                URL where Mission Control is running. Auto-detected by default. Change for remote access.
+                {t('missionControlUrlHelp')}
               </p>
             </div>
           </div>
@@ -209,20 +211,20 @@ export default function SettingsPage() {
         {/* 环境变量说明区块 / Environment variables note section */}
         <section className="p-6 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <h3 className="text-lg font-semibold text-blue-400 mb-2">
-            📝 Environment Variables
+            {t('envVarsTitle')}
           </h3>
           <p className="text-sm text-blue-300 mb-3">
-            Some settings are also configurable via environment variables in <code className="px-2 py-1 bg-mc-bg rounded">.env.local</code>:
+            {t('envVarsIntro')} <code className="px-2 py-1 bg-mc-bg rounded">.env.local</code>{t('envVarsIntroSuffix')}
           </p>
           <ul className="text-sm text-blue-300 space-y-1 ml-4 list-disc">
-            <li><code>MISSION_CONTROL_URL</code> - API URL override</li>
-            <li><code>WORKSPACE_BASE_PATH</code> - Base workspace directory</li>
-            <li><code>PROJECTS_PATH</code> - Projects directory</li>
-            <li><code>OPENCLAW_GATEWAY_URL</code> - Gateway WebSocket URL</li>
-            <li><code>OPENCLAW_GATEWAY_TOKEN</code> - Gateway auth token</li>
+            <li>{t('envVarMissionControlUrl')}</li>
+            <li>{t('envVarWorkspaceBasePath')}</li>
+            <li>{t('envVarProjectsPath')}</li>
+            <li>{t('envVarGatewayUrl')}</li>
+            <li>{t('envVarGatewayToken')}</li>
           </ul>
           <p className="text-xs text-blue-400 mt-3">
-            Environment variables take precedence over UI settings for server-side operations.
+            {t('envVarsPrecedence')}
           </p>
         </section>
       </div>

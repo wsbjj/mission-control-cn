@@ -7,6 +7,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { FileText, Link as LinkIcon, Package, ExternalLink, Eye } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { debug } from '@/lib/debug';
 import type { TaskDeliverable } from '@/lib/types';
 
@@ -15,6 +16,7 @@ interface DeliverablesListProps {
 }
 
 export function DeliverablesList({ taskId }: DeliverablesListProps) {
+  const t = useTranslations('taskModal');
   const [deliverables, setDeliverables] = useState<TaskDeliverable[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -114,7 +116,7 @@ export function DeliverablesList({ taskId }: DeliverablesListProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="text-mc-text-secondary">Loading deliverables...</div>
+        <div className="text-mc-text-secondary">{t('deliverablesLoading')}</div>
       </div>
     );
   }
@@ -123,7 +125,7 @@ export function DeliverablesList({ taskId }: DeliverablesListProps) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-mc-text-secondary">
         <div className="text-4xl mb-2">📦</div>
-        <p>No deliverables yet</p>
+        <p>{t('deliverablesEmpty')}</p>
       </div>
     );
   }

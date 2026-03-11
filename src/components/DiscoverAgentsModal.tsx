@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { X, Search, Download, Check, AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 import { useMissionControl } from '@/lib/store';
 import type { DiscoveredAgent } from '@/lib/types';
 
@@ -11,6 +12,7 @@ interface DiscoverAgentsModalProps {
 }
 
 export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModalProps) {
+  const t = useTranslations('discoverAgentsModal');
   const { addAgent } = useMissionControl();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,13 +33,13 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
       const res = await fetch('/api/agents/discover');
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || `Failed to discover agents (${res.status})`);
+        setError(data.error || `${t('failedDiscover')} (${res.status})`);
         return;
       }
       const data = await res.json();
       setAgents(data.agents || []);
     } catch (err) {
-      setError('Failed to connect to the server');
+      setError(t('failedConnect'));
     } finally {
       setLoading(false);
     }
@@ -92,7 +94,7 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
 
       if (!res.ok) {
         const data = await res.json();
-        setError(data.error || 'Failed to import agents');
+        setError(data.error || t('failedImport'));
         return;
       }
 
@@ -112,7 +114,7 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
       await discover();
       setSelectedIds(new Set());
     } catch (err) {
-      setError('Failed to import agents');
+      setError(t('failedImport'));
     } finally {
       setImporting(false);
     }
@@ -128,10 +130,10 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
           <div>
             <h2 className="text-lg font-semibold flex items-center gap-2">
               <Search className="w-5 h-5 text-mc-accent" />
-              Discover Gateway Agents
+              {t('title')}
             </h2>
             <p className="text-sm text-mc-text-secondary mt-1">
-              Import existing agents from the OpenClaw Gateway
+              {t('subtitle')}
             </p>
           </div>
           <button
@@ -147,7 +149,7 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
           {loading && (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 animate-spin text-mc-accent mr-3" />
-              <span className="text-mc-text-secondary">Discovering agents from Gateway...</span>
+              <span className="text-mc-text-secondary">{t('discovering')}</span>
             </div>
           )}
 
@@ -162,16 +164,16 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
             <div className="flex items-center gap-3 p-4 bg-green-500/10 border border-green-500/20 rounded-lg mb-4">
               <Check className="w-5 h-5 text-green-400 flex-shrink-0" />
               <span className="text-sm text-green-400">
-                Imported {importResult.imported} agent{importResult.imported !== 1 ? 's' : ''}
-                {importResult.skipped > 0 && ` (${importResult.skipped} skipped)`}
+                {importResult.imported === 1 ? t('importedSuccess', { count: importResult.imported }) : t('importedSuccess_other', { count: importResult.imported })}
+                {importResult.skipped > 0 && ` (${t('skipped', { count: importResult.skipped })})`}
               </span>
             </div>
           )}
 
           {!loading && !error && agents.length === 0 && (
             <div className="text-center py-12 text-mc-text-secondary">
-              <p>No agents found in the Gateway.</p>
-              <p className="text-sm mt-2">Make sure the OpenClaw Gateway is running and has agents configured.</p>
+              <p>{t('noAgentsFound')}</p>
+              <p className="text-sm mt-2">{t('noAgentsHint')}</p>
             </div>
           )}
 
@@ -180,8 +182,8 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
               {/* Selection controls */}
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <span className="text-sm text-mc-text-secondary">
-                  {agents.length} agent{agents.length !== 1 ? 's' : ''} found
-                  {availableCount < agents.length && ` · ${agents.length - availableCount} already imported`}
+                  {agents.length === 1 ? t('agentsFound', { count: agents.length }) : t('agentsFound_other', { count: agents.length })}
+                  {availableCount < agents.length && ` · ${t('alreadyImported', { count: agents.length - availableCount })}`}
                 </span>
                 <div className="flex flex-wrap gap-2">
                   <button
@@ -189,7 +191,7 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
                     className="min-h-11 flex items-center gap-1 px-3 py-2 text-xs text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary rounded"
                   >
                     <RefreshCw className="w-3 h-3" />
-                    Refresh
+                    {t('refresh')}
                   </button>
                   {availableCount > 0 && (
                     <>
@@ -197,13 +199,13 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
                         onClick={selectAllAvailable}
                         className="min-h-11 px-3 py-2 text-xs text-mc-accent hover:bg-mc-accent/10 rounded"
                       >
-                        Select All
+                        {t('selectAll')}
                       </button>
                       <button
                         onClick={deselectAll}
                         className="min-h-11 px-3 py-2 text-xs text-mc-text-secondary hover:bg-mc-bg-tertiary rounded"
                       >
-                        Deselect All
+                        {t('deselectAll')}
                       </button>
                     </>
                   )}
@@ -252,15 +254,15 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
                           <span className="font-medium text-sm truncate">{agent.name}</span>
                           {isImported && (
                             <span className="text-xs px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">
-                              Imported
+                              {t('importedBadge')}
                             </span>
                           )}
                         </div>
                         <div className="flex items-center gap-3 text-xs text-mc-text-secondary mt-0.5">
-                          {agent.model && <span>Model: {agent.model}</span>}
-                          {agent.channel && <span>Channel: {agent.channel}</span>}
-                          {agent.status && <span>Status: {agent.status}</span>}
-                          <span className="text-mc-text-secondary/60">ID: {agent.id}</span>
+                          {agent.model && <span>{t('modelLabel')}: {agent.model}</span>}
+                          {agent.channel && <span>{t('channelLabel')}: {agent.channel}</span>}
+                          {agent.status && <span>{t('statusLabel')}: {agent.status}</span>}
+                          <span className="text-mc-text-secondary/60">{t('idLabel')}: {agent.id}</span>
                         </div>
                       </div>
                     </div>
@@ -274,14 +276,14 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
         {/* Footer */}
         <div className="flex items-center justify-between p-4 border-t border-mc-border">
           <span className="text-sm text-mc-text-secondary">
-            {selectedIds.size > 0 ? `${selectedIds.size} selected` : 'Select agents to import'}
+            {selectedIds.size > 0 ? t('selectedCount', { count: selectedIds.size }) : t('selectAgentsToImport')}
           </span>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={onClose}
               className="min-h-11 px-4 py-2 text-sm text-mc-text-secondary hover:text-mc-text"
             >
-              {importResult ? 'Done' : 'Cancel'}
+              {importResult ? t('done') : t('cancel')}
             </button>
             <button
               onClick={handleImport}
@@ -291,12 +293,12 @@ export function DiscoverAgentsModal({ onClose, workspaceId }: DiscoverAgentsModa
               {importing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Importing...
+                  {t('importing')}
                 </>
               ) : (
                 <>
                   <Download className="w-4 h-4" />
-                  Import {selectedIds.size > 0 ? `(${selectedIds.size})` : ''}
+                  {selectedIds.size > 0 ? t('importWithCount', { count: selectedIds.size }) : t('import')}
                 </>
               )}
             </button>

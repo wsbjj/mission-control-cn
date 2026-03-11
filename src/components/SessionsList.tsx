@@ -7,6 +7,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Bot, CheckCircle, Circle, XCircle, Trash2, Check } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 interface SessionWithAgent {
   id: string;
@@ -28,6 +29,7 @@ interface SessionsListProps {
 }
 
 export function SessionsList({ taskId }: SessionsListProps) {
+  const t = useTranslations('taskModal');
   const [sessions, setSessions] = useState<SessionWithAgent[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -109,7 +111,7 @@ export function SessionsList({ taskId }: SessionsListProps) {
   };
 
   const handleDelete = async (sessionId: string) => {
-    if (!confirm('Delete this sub-agent session?')) return;
+    if (!confirm(t('sessionsDeleteConfirm'))) return;
     try {
       const res = await fetch(`/api/openclaw/sessions/${sessionId}`, {
         method: 'DELETE',
@@ -125,7 +127,7 @@ export function SessionsList({ taskId }: SessionsListProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="text-mc-text-secondary">Loading sessions...</div>
+        <div className="text-mc-text-secondary">{t('sessionsLoading')}</div>
       </div>
     );
   }
@@ -134,7 +136,7 @@ export function SessionsList({ taskId }: SessionsListProps) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-mc-text-secondary">
         <div className="text-4xl mb-2">🤖</div>
-        <p>No sub-agent sessions yet</p>
+        <p>{t('sessionsEmpty')}</p>
       </div>
     );
   }

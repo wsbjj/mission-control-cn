@@ -2,7 +2,8 @@
 
 import {useEffect, useState, type ReactNode} from 'react';
 import {useParams} from 'next/navigation';
-import Link from 'next/link';
+import {Link} from '@/i18n/routing';
+import {useTranslations} from 'next-intl';
 import {ChevronLeft, ListTodo, Users, Activity, Settings as SettingsIcon, ExternalLink, Home, BarChart3} from 'lucide-react';
 import {Header} from '@/components/Header';
 import {AgentsSidebar} from '@/components/AgentsSidebar';
@@ -19,7 +20,6 @@ type MobileTab = 'queue' | 'agents' | 'feed' | 'settings'; // 移动端页签类
 export default function WorkspacePage() {
   const params = useParams(); // 读取动态路由参数 / Read dynamic route params
   const slug = params.slug as string; // 工作区标识符 / Workspace identifier
-
   const {setAgents, setTasks, setEvents, setIsOnline, setIsLoading, isLoading} = useMissionControl(); // 全局状态操作 / Global store operations
 
   const [workspace, setWorkspace] = useState<Workspace | null>(null); // 当前工作区数据 / Current workspace data
@@ -345,6 +345,7 @@ function MobileTabButton({
 }
 
 function MobileSettingsPanel({workspace, denseLandscape = false}: {workspace: Workspace; denseLandscape?: boolean}) {
+  const tAgentDashboard = useTranslations('agentDashboard');
   return (
     <div
       className={`h-full overflow-y-auto ${
@@ -368,7 +369,7 @@ function MobileSettingsPanel({workspace, denseLandscape = false}: {workspace: Wo
         >
           <span className="flex items-center gap-2">
             <BarChart3 className="w-4 h-4" />
-            Agent Activity Dashboard
+            {tAgentDashboard('title')}
           </span>
           <ExternalLink className="w-4 h-4 text-mc-text-secondary" />
         </Link>

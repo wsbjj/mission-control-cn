@@ -7,13 +7,44 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
+import { zhCN } from 'date-fns/locale';
+import type { Locale } from 'date-fns';
+import { useLocale, useTranslations } from 'next-intl';
 import type { TaskActivity } from '@/lib/types';
 
 interface ActivityLogProps {
   taskId: string;
 }
 
+function formatActivityMessage(
+  message: string,
+  t: (key: string, values?: Record<string, string>) => string
+): string {
+  const dispatchedMatch = message.match(/Task dispatched to (.+?) - Agent is now working on this task/);
+  if (dispatchedMatch) {
+    const out = t('activityDispatchedTo', { agent: dispatchedMatch[1].trim() });
+    if (out.startsWith('taskModal.')) return message;
+    return out;
+  }
+  const handoffMatch = message.match(/Stage handoff: (.+?) → (.+?)(?:\s*\(reason:.*\))?$/);
+  if (handoffMatch) {
+    const out = t('activityStageHandoff', { stage: handoffMatch[1].trim(), agent: handoffMatch[2].trim() });
+    if (out.startsWith('taskModal.')) return message;
+    return out;
+  }
+  if (message.startsWith('Verification passed:')) {
+    return t('activityVerificationPassed') + message.slice('Verification passed:'.length);
+  }
+  if (message.startsWith('Tests passed:')) {
+    return t('activityTestsPassed') + message.slice('Tests passed:'.length);
+  }
+  return message;
+}
+
 export function ActivityLog({ taskId }: ActivityLogProps) {
+  const t = useTranslations('taskModal');
+  const locale = useLocale();
+  const dateLocale: Locale | undefined = locale === 'zh' ? zhCN : undefined;
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const pollingRef = useRef<NodeJS.Timeout | null>(null);
@@ -92,7 +123,7 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <div className="text-mc-text-secondary">Loading activities...</div>
+        <div className="text-mc-text-secondary">{t('activityLoading')}</div>
       </div>
     );
   }
@@ -101,7 +132,7 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
     return (
       <div className="flex flex-col items-center justify-center py-8 text-mc-text-secondary">
         <div className="text-4xl mb-2">📝</div>
-        <p>No activity yet</p>
+        <p>{t('activityEmpty')}</p>
       </div>
     );
   }
@@ -132,7 +163,7 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
 
             {/* Message */}
             <p className="text-sm text-mc-text break-words">
-              {activity.message}
+              {formatActivityMessage(activity.message, t)}
             </p>
 
             {/* Metadata */}
@@ -146,7 +177,7 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
 
             {/* Timestamp */}
             <div className="text-xs text-mc-text-secondary mt-2">
-              {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true })}
+              {formatDistanceToNow(new Date(activity.created_at), { addSuffix: true, locale: dateLocale })}
             </div>
           </div>
         </div>

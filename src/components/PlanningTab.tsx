@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { CheckCircle, Circle, Lock, AlertCircle, Loader2, X } from 'lucide-react';
+import { useTranslations } from 'next-intl';
 
 interface PlanningOption {
   id: string;
@@ -49,6 +50,7 @@ interface PlanningTabProps {
 }
 
 export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
+  const t = useTranslations('taskModal');
   const [state, setState] = useState<PlanningState | null>(null);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState(false);
@@ -361,7 +363,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
 
   // Cancel planning
   const cancelPlanning = async () => {
-    if (!confirm('Are you sure you want to cancel planning? This will reset the planning state.')) {
+    if (!confirm(t('planningCancelConfirm'))) {
       return;
     }
 
@@ -508,10 +510,9 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
     return (
       <div className="flex flex-col items-center justify-center p-8 space-y-4">
         <div className="text-center">
-          <h3 className="text-lg font-medium mb-2">Start Planning</h3>
+          <h3 className="text-lg font-medium mb-2">{t('planningStartTitle')}</h3>
           <p className="text-mc-text-secondary text-sm max-w-md">
-            I&apos;ll ask you a few questions to understand exactly what you need. 
-            All questions are multiple choice — just click to answer.
+            {t('planningStartDescription')}
           </p>
         </div>
         
@@ -530,10 +531,10 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
           {starting ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Starting...
+              {t('planningStarting')}
             </>
           ) : (
-            <>📋 Start Planning</>
+            <>📋 {t('planningStartButton')}</>
           )}
         </button>
       </div>
@@ -547,7 +548,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
       <div className="p-4 border-b border-mc-border flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm text-mc-text-secondary">
           <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse" />
-          <span>Planning in progress...</span>
+          <span>{t('planningInProgress')}</span>
         </div>
         <button
           onClick={cancelPlanning}
@@ -557,12 +558,12 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
           {canceling ? (
             <>
               <Loader2 className="w-4 h-4 animate-spin" />
-              Canceling...
+              {t('planningCanceling')}
             </>
           ) : (
             <>
               <X className="w-4 h-4" />
-              Cancel
+              {t('planningCancel')}
             </>
           )}
         </button>
@@ -615,7 +616,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
                           type="text"
                           value={otherText}
                           onChange={(e) => setOtherText(e.target.value)}
-                          placeholder="Please specify..."
+                          placeholder={t('planningPleaseSpecify')}
                           className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
                           disabled={submitting}
                         />

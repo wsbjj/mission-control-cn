@@ -2,15 +2,26 @@
 
 import {useState, useEffect} from 'react';
 import {Plus, ArrowRight, Folder, Users, CheckSquare, Trash2, AlertTriangle, Activity} from 'lucide-react';
-import Link from 'next/link';
-import {useTranslations} from 'next-intl'; // 仪表盘文案国际化 / i18n for dashboard copy
+import {useLocale, useTranslations} from 'next-intl';
+import {Link, usePathname, useRouter} from '@/i18n/routing'; // 带语言前缀的导航，保证活动看板等页与当前语言一致 / Locale-aware nav so activity dashboard respects current locale
 import type {WorkspaceStats} from '@/lib/types';
 
 export function WorkspaceDashboard() {
-  const t = useTranslations('dashboard'); // 工作区总览命名空间 / Namespace for workspace dashboard
+  const t = useTranslations('dashboard');
+  const tHeader = useTranslations('header');
+  const currentLocale = useLocale();
+  const pathname = usePathname();
+  const router = useRouter();
   const [workspaces, setWorkspaces] = useState<WorkspaceStats[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [isLocaleMenuOpen, setIsLocaleMenuOpen] = useState(false);
+
+  const switchLocale = (targetLocale: string) => {
+    if (targetLocale === currentLocale) return;
+    router.push(pathname, {locale: targetLocale});
+    setIsLocaleMenuOpen(false);
+  };
 
   useEffect(() => {
     loadWorkspaces();
@@ -56,19 +67,52 @@ export function WorkspaceDashboard() {
               </h1>
             </div>
             <div className="flex items-center gap-2">
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setIsLocaleMenuOpen((open) => !open)}
+                  className="min-h-11 px-3 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-1 text-sm"
+                  title={currentLocale === 'en' ? tHeader('language.en') : tHeader('language.zh')}
+                >
+                  <span>{currentLocale === 'en' ? tHeader('language.en') : tHeader('language.zh')}</span>
+                  <span className="text-[10px] opacity-70">▼</span>
+                </button>
+                {isLocaleMenuOpen && (
+                  <div className="absolute right-0 mt-1 w-28 rounded-lg border border-mc-border bg-mc-bg-secondary shadow-lg z-10">
+                    <button
+                      type="button"
+                      onClick={() => switchLocale('en')}
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-mc-bg-tertiary rounded-t-lg ${
+                        currentLocale === 'en' ? 'text-mc-accent font-medium' : 'text-mc-text-secondary'
+                      }`}
+                    >
+                      {tHeader('language.en')}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => switchLocale('zh')}
+                      className={`w-full px-3 py-2 text-left text-sm hover:bg-mc-bg-tertiary rounded-b-lg ${
+                        currentLocale === 'zh' ? 'text-mc-accent font-medium' : 'text-mc-text-secondary'
+                      }`}
+                    >
+                      {tHeader('language.zh')}
+                    </button>
+                  </div>
+                )}
+              </div>
               <Link
                 href={workspaces.length > 0 ? `/workspace/${workspaces[0].slug}/activity` : '/workspace/default/activity'}
                 className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm"
               >
                 <Activity className="w-4 h-4" />
-                {t('activityButton') /* 活动看板按钮文案 / Activity dashboard button copy */}
+                {t('activityButton')}
               </Link>
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="min-h-11 flex items-center gap-2 px-4 bg-mc-accent text-mc-bg rounded-lg font-medium hover:bg-mc-accent/90"
               >
                 <Plus className="w-4 h-4" />
-                {t('newWorkspace') /* 新建工作区按钮文案 / New workspace button copy */}
+                {t('newWorkspace')}
               </button>
             </div>
           </div>
@@ -203,11 +247,11 @@ function WorkspaceCard({workspace, onDelete}: {workspace: WorkspaceStats; onDele
         <div className="flex items-center gap-4 text-sm text-mc-text-secondary mt-4">
           <div className="flex items-center gap-1">
             <CheckSquare className="w-4 h-4" />
-            <span>{workspace.taskCounts.total} tasks</span>
+            <span>{workspace.taskCounts.total} {t('cardTasksLabel')}</span>
           </div>
           <div className="flex items-center gap-1">
             <Users className="w-4 h-4" />
-            <span>{workspace.agentCount} agents</span>
+            <span>{workspace.agentCount} {t('cardAgentsLabel')}</span>
           </div>
         </div>
       </div>

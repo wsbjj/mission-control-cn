@@ -20,7 +20,7 @@ export async function GET(
       created_at: string; updated_at: string;
     }>(
       `SELECT * FROM workflow_templates
-       WHERE workspace_id = ? OR workspace_id = 'default'
+       WHERE workspace_id = ?
        ORDER BY is_default DESC, name ASC`,
       [workspaceId]
     );

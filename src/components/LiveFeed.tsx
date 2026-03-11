@@ -5,7 +5,9 @@ import {ChevronRight, ChevronLeft, Clock} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import type {Event} from '@/lib/types';
 import {formatDistanceToNow} from 'date-fns';
-import {useTranslations} from 'next-intl'; // 实时事件流文案国际化 / i18n for live feed copy
+import {zhCN} from 'date-fns/locale';
+import type {Locale} from 'date-fns';
+import {useLocale, useTranslations} from 'next-intl';
 
 type FeedFilter = 'all' | 'tasks' | 'agents';
 
@@ -16,7 +18,9 @@ interface LiveFeedProps {
 
 export function LiveFeed({mobileMode = false, isPortrait = true}: LiveFeedProps) {
   const {events} = useMissionControl();
-  const t = useTranslations('liveFeed'); // 实时事件流命名空间 / Namespace for live feed
+  const t = useTranslations('liveFeed');
+  const locale = useLocale();
+  const dateLocale = locale === 'zh' ? zhCN : undefined;
   const [filter, setFilter] = useState<FeedFilter>('all');
   const [isMinimized, setIsMinimized] = useState(false);
 
@@ -83,7 +87,7 @@ export function LiveFeed({mobileMode = false, isPortrait = true}: LiveFeedProps)
               {t('empty') /* 暂无事件文案 / No events yet message */}
             </div>
           ) : (
-            filteredEvents.map((event) => <EventItem key={event.id} event={event} />)
+            filteredEvents.map((event) => <EventItem key={event.id} event={event} dateLocale={dateLocale} />)
           )}
         </div>
       )}
@@ -91,7 +95,19 @@ export function LiveFeed({mobileMode = false, isPortrait = true}: LiveFeedProps)
   );
 }
 
-function EventItem({ event }: { event: Event }) {
+const STATUS_KEYS: Record<string, string> = {
+  done: 'statusDone',
+  review: 'statusReview',
+  testing: 'statusTesting',
+  in_progress: 'statusInProgress',
+  assigned: 'statusAssigned',
+  planning: 'statusPlanning',
+  inbox: 'statusInbox',
+};
+
+function EventItem({ event, dateLocale }: { event: Event; dateLocale?: Locale }) {
+  const t = useTranslations('liveFeed');
+
   const getEventIcon = (type: string) => {
     switch (type) {
       case 'task_created':
@@ -115,6 +131,41 @@ function EventItem({ event }: { event: Event }) {
     }
   };
 
+  const displayMessage = (): string => {
+    const msg = event.message;
+    const movedMatch = msg.match(/Task "([^"]+)" moved to (\w+)/);
+    if (movedMatch) {
+      const [, title = '', status = ''] = movedMatch;
+      const statusKey = STATUS_KEYS[status];
+      const statusLabel = statusKey ? t(statusKey as any) : status;
+      const out = t('taskMovedTo', { title, status: String(statusLabel) });
+      if (out.startsWith('liveFeed.')) return msg;
+      return out;
+    }
+    const dispatchedMatch = msg.match(/Task "([^"]+)" dispatched to (.+)/);
+    if (dispatchedMatch) {
+      const [, title = '', agent = ''] = dispatchedMatch;
+      const out = t('taskDispatchedTo', { title, agent: String(agent).trim() });
+      if (out.startsWith('liveFeed.')) return msg;
+      return out;
+    }
+    const assignedMatch = msg.match(/"([^"]+)" assigned to (.+)/);
+    if (assignedMatch) {
+      const [, title = '', agent = ''] = assignedMatch;
+      const out = t('taskAssignedTo', { title, agent: String(agent).trim() });
+      if (out.startsWith('liveFeed.')) return msg;
+      return out;
+    }
+    const joinedMatch = msg.match(/(.+)\s+joined the team\s*$/);
+    if (joinedMatch) {
+      const name = (joinedMatch[1] || '').trim();
+      const out = t('agentJoinedTeam', { name });
+      if (out.startsWith('liveFeed.')) return msg;
+      return out;
+    }
+    return msg;
+  };
+
   const isTaskEvent = ['task_created', 'task_assigned', 'task_completed'].includes(event.type);
   const isHighlight = event.type === 'task_created' || event.type === 'task_completed';
 
@@ -127,10 +178,10 @@ function EventItem({ event }: { event: Event }) {
       <div className="flex items-start gap-2">
         <span className="text-sm">{getEventIcon(event.type)}</span>
         <div className="flex-1 min-w-0">
-          <p className={`text-sm ${isTaskEvent ? 'text-mc-accent-pink' : 'text-mc-text'}`}>{event.message}</p>
+          <p className={`text-sm ${isTaskEvent ? 'text-mc-accent-pink' : 'text-mc-text'}`}>{displayMessage()}</p>
           <div className="flex items-center gap-1 mt-1 text-xs text-mc-text-secondary">
             <Clock className="w-3 h-3" />
-            {formatDistanceToNow(new Date(event.created_at), { addSuffix: true })}
+            {formatDistanceToNow(new Date(event.created_at), { addSuffix: true, locale: dateLocale })}
           </div>
         </div>
       </div>

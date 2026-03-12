@@ -21,6 +21,9 @@ export interface MissionControlConfig {
   // Project defaults
   defaultProjectName: string; // 'mission-control' or custom
 
+  // Time & localization preferences
+  timezone: string; // 'local' | 'UTC' | IANA zone like 'Asia/Shanghai'
+
   // UX preferences
   kanbanCompactEmptyColumns: boolean; // shrink empty columns to fit header text
 }
@@ -30,6 +33,8 @@ const DEFAULT_CONFIG: MissionControlConfig = {
   projectsPath: '~/Documents/Shared/projects',
   missionControlUrl: typeof window !== 'undefined' ? window.location.origin : `http://localhost:${process.env.PORT || '4000'}`,
   defaultProjectName: 'mission-control',
+   // 默认跟随本地浏览器时区 / Default: follow local browser timezone
+  timezone: 'local',
   kanbanCompactEmptyColumns: false,
 };
 

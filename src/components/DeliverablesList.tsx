@@ -7,9 +7,10 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { FileText, Link as LinkIcon, Package, ExternalLink, Eye } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useTranslations, useLocale } from 'next-intl';
 import { debug } from '@/lib/debug';
 import type { TaskDeliverable } from '@/lib/types';
+import { getConfig, type MissionControlConfig } from '@/lib/config';
 
 interface DeliverablesListProps {
   taskId: string;
@@ -17,8 +18,11 @@ interface DeliverablesListProps {
 
 export function DeliverablesList({ taskId }: DeliverablesListProps) {
   const t = useTranslations('taskModal');
+  const locale = useLocale(); // 当前界面语言 / Current UI locale
   const [deliverables, setDeliverables] = useState<TaskDeliverable[]>([]);
   const [loading, setLoading] = useState(true);
+  const [timezone, setTimezone] = useState<MissionControlConfig['timezone']>('local'); // 时区设置 / Timezone preference
+  const [mounted, setMounted] = useState(false); // 挂载标记，用于避免 SSR Hydration Mismatch / Mounted flag to avoid hydration mismatch
 
   const loadDeliverables = useCallback(async () => {
     try {
@@ -37,6 +41,19 @@ export function DeliverablesList({ taskId }: DeliverablesListProps) {
   useEffect(() => {
     loadDeliverables();
   }, [loadDeliverables]);
+
+  // 在客户端挂载后再读取 localStorage 中的配置，避免服务端渲染与客户端初次渲染不一致 / 
+  // Read config from localStorage only after mount to avoid SSR/client mismatch
+  useEffect(() => {
+    setMounted(true);
+    try {
+      const cfg = getConfig();
+      setTimezone(cfg.timezone ?? 'local');
+    } catch (error) {
+      console.error('Failed to load timezone config:', error);
+      setTimezone('local');
+    }
+  }, []);
 
   const getDeliverableIcon = (type: string) => {
     switch (type) {
@@ -104,13 +121,41 @@ export function DeliverablesList({ taskId }: DeliverablesListProps) {
   };
 
   const formatTimestamp = (timestamp: string) => {
-    const date = new Date(timestamp);
-    return date.toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: 'numeric',
+    // SQLite 使用 `datetime('now')` 存的是 `YYYY-MM-DD HH:MM:SS` 形式的 UTC 时间，
+    // 但浏览器在解析这种字符串时会当成本地时间。这里显式按 UTC 解析，再根据所选时区转换。
+    const normalized =
+      /Z$/i.test(timestamp) || timestamp.includes('T')
+        ? timestamp
+        : `${timestamp.replace(' ', 'T')}Z`;
+    const date = new Date(normalized);
+
+    // 如果组件尚未在客户端挂载完成，则返回一个稳定的占位符，避免 SSR Hydration 警告 /
+    // Before client mount, return stable placeholder to avoid hydration warnings
+    if (!mounted) {
+      return '—';
+    }
+
+    const options: Intl.DateTimeFormatOptions = {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
       minute: '2-digit',
-    });
+      hour12: false,
+    };
+
+    // 当配置为非 local 时，显式指定 IANA 时区；local 则让浏览器自动选择本地时区 /
+    // For non-'local', explicitly set IANA timezone; otherwise rely on browser local timezone
+    if (timezone && timezone !== 'local') {
+      options.timeZone = timezone;
+    }
+
+    try {
+      return date.toLocaleString(locale, options);
+    } catch (error) {
+      console.error('Failed to format timestamp with locale/timezone, falling back to ISO string:', error);
+      return date.toISOString();
+    }
   };
 
   if (loading) {

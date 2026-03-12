@@ -8,7 +8,7 @@
 import {useState, useEffect} from 'react';
 import {useRouter} from 'next/navigation';
 import {useTranslations} from 'next-intl';
-import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon, Home} from 'lucide-react';
+import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon, Home, Globe2} from 'lucide-react';
 import {getConfig, updateConfig, resetConfig, type MissionControlConfig} from '@/lib/config';
 
 export default function SettingsPage() {
@@ -233,6 +233,37 @@ export default function SettingsPage() {
               </div>
             </div>
           </label>
+        </section>
+
+        {/* 时区设置：控制交付物与系统时间显示时区 / Timezone settings: controls display timezone for deliverables & system timestamps */}
+        <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
+          <div className="flex items-center gap-2 mb-4">
+            <Globe2 className="w-5 h-5 text-mc-accent" />
+            <h2 className="text-xl font-semibold text-mc-text">{t('timezoneTitle')}</h2>
+          </div>
+          <p className="text-sm text-mc-text-secondary mb-4">
+            {t('timezoneDesc')}
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-mc-text mb-2">
+                {t('timezoneLabel')}
+              </label>
+              <select
+                value={config.timezone}
+                onChange={(e) => handleChange('timezone', e.target.value)}
+                className="w-full px-4 py-2 bg-mc-bg border border-mc-border rounded text-mc-text focus:border-mc-accent focus:outline-none"
+              >
+                <option value="local">{t('timezoneOptionLocal')}</option>
+                <option value="UTC">{t('timezoneOptionUtc')}</option>
+                <option value="Asia/Shanghai">{t('timezoneOptionShanghai')}</option>
+              </select>
+              <p className="text-xs text-mc-text-secondary mt-1">
+                {t('timezoneHelp')}
+              </p>
+            </div>
+          </div>
         </section>
 
         {/* 环境变量说明区块 / Environment variables note section */}

@@ -8,7 +8,8 @@ import {getConfig} from '@/lib/config';
 import type {Task, TaskStatus} from '@/lib/types';
 import {TaskModal} from './TaskModal';
 import {formatDistanceToNow} from 'date-fns';
-import {useTranslations} from 'next-intl';
+import {zhCN} from 'date-fns/locale';
+import {useTranslations, useLocale} from 'next-intl';
 
 interface MissionQueueProps {
   workspaceId?: string;
@@ -267,6 +268,8 @@ interface TaskCardProps {
 
 function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true}: TaskCardProps) {
   const t = useTranslations('missionQueue'); // 任务卡片文案国际化 / i18n for task card copy
+  const locale = useLocale(); // 当前界面语言 / Current UI locale
+  const dateLocale = locale === 'zh' ? zhCN : undefined; // 中文使用 zhCN，相对时间自动汉化 / Use zhCN for Chinese locale
   const priorityStyles = {
     low: 'text-mc-text-secondary',
     normal: 'text-mc-accent',
@@ -362,12 +365,17 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2 pt-2 border-t border-mc-border/20">
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-mc-border/20">
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${priorityDots[task.priority]}`} />
             <span className={`text-xs capitalize ${priorityStyles[task.priority]}`}>{task.priority}</span>
           </div>
-          <span className="text-[10px] text-mc-text-secondary/60">{formatDistanceToNow(new Date(task.created_at), { addSuffix: true })}</span>
+          <span className="text-[10px] text-mc-text-secondary/60">
+            {formatDistanceToNow(new Date(task.created_at), {
+              addSuffix: true,
+              locale: dateLocale, // 根据当前语言切换相对时间语言 / Localize relative time by UI locale
+            })}
+          </span>
         </div>
 
         {mobileMode && (

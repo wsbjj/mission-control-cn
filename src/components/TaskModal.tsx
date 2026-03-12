@@ -1,6 +1,7 @@
 'use client';
 
 import {useState, useCallback} from 'react';
+import TextareaAutosize from 'react-textarea-autosize'; // 自适应高度文本域 / Auto-resizing textarea
 import {X, Save, Trash2, Activity, Package, Bot, ClipboardList, Plus, Users, ImageIcon} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
@@ -250,14 +251,15 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
             />
           </div>
 
-          {/* Description / 描述输入 */}
+          {/* Description / 描述输入（自适应高度） */}
           <div>
             <label className="block text-sm font-medium mb-1">{t('fieldDescription')}</label>
-            <textarea
+            <TextareaAutosize
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={3}
-              className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-none"
+              minRows={3} // 最小显示 3 行 / Minimum 3 rows
+              maxRows={14} // 最大扩展到约一屏高度，之后内部滚动 / Cap height around one screen, then scroll
+              className="w-full bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-none max-h-80"
               placeholder={t('fieldDescriptionPlaceholder')}
             />
           </div>

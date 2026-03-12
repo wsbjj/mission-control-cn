@@ -51,7 +51,17 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
   const [mobileStatus, setMobileStatus] = useState<TaskStatus>('planning');
   const [statusMoveTask, setStatusMoveTask] = useState<Task | null>(null);
 
-  const getTasksByStatus = (status: TaskStatus) => tasks.filter((task) => task.status === status);
+  // 按最近更新时间（若无则按创建时间）降序排序任务，
+  // 确保最近更新或新建的任务显示在列顶部 / Sort tasks by most recent updated_at (fallback to created_at)
+  const getTasksByStatus = (status: TaskStatus) =>
+    tasks
+      .filter((task) => task.status === status)
+      .slice()
+      .sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at).getTime();
+        const bTime = new Date(b.updated_at || b.created_at).getTime();
+        return bTime - aTime;
+      });
 
   const updateTaskStatusWithPersist = async (task: Task, targetStatus: TaskStatus) => {
     if (task.status === targetStatus) return;
@@ -371,7 +381,7 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
             <span className={`text-xs capitalize ${priorityStyles[task.priority]}`}>{task.priority}</span>
           </div>
           <span className="text-[10px] text-mc-text-secondary/60">
-            {formatDistanceToNow(new Date(task.created_at), {
+            {formatDistanceToNow(new Date(task.updated_at || task.created_at), {
               addSuffix: true,
               locale: dateLocale, // 根据当前语言切换相对时间语言 / Localize relative time by UI locale
             })}

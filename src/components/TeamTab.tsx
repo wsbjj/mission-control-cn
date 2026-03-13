@@ -318,7 +318,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
 
           {/* Custom role slots (not from workflow) - role names are catalog-driven (not editable text) */}
           {roles.filter(r => !uniqueRoles.includes(normalizeRole(r.role)) && r.role).map((r, i) => (
-            <div key={`custom-${i}`} className="flex items-center gap-3">
+              <div key={`custom-${i}`} className="flex items-center gap-3">
               <div className="w-24 text-xs font-medium text-mc-text-secondary capitalize flex-shrink-0">
                 {translateRoleName(normalizeRole(r.role))}
               </div>

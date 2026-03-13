@@ -5,6 +5,8 @@ import type { Task } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 
+const normalizeRole = (value: string) => value.trim().toLowerCase();
+
 /**
  * GET /api/tasks/[id]/roles
  * List role assignments for a task
@@ -67,24 +69,30 @@ export async function PUT(
       // Clear existing roles
       db.prepare('DELETE FROM task_roles WHERE task_id = ?').run(taskId);
 
-      // Insert new roles
+      // Insert new roles (normalized + deduped by role)
       const insert = db.prepare(
         `INSERT INTO task_roles (id, task_id, role, agent_id, created_at)
          VALUES (?, ?, ?, ?, datetime('now'))`
       );
 
-      for (const { role, agent_id } of roles) {
-        if (role && agent_id) {
-          insert.run(crypto.randomUUID(), taskId, role, agent_id);
+      const deduped = new Map<string, string>();
+      for (const entry of roles as Array<{ role: string; agent_id: string }>) {
+        const normalizedRole = normalizeRole(entry.role || '');
+        if (normalizedRole && entry.agent_id) {
+          deduped.set(normalizedRole, entry.agent_id);
         }
       }
 
+      Array.from(deduped.entries()).forEach(([role, agent_id]) => {
+        insert.run(crypto.randomUUID(), taskId, role, agent_id);
+      });
+
       // Also set the primary assigned_agent_id to the builder (first role) if not set
-      if (roles.length > 0 && !task.assigned_agent_id) {
-        const builderRole = roles.find((r: { role: string }) => r.role === 'builder') || roles[0];
-        if (builderRole) {
+      if (deduped.size > 0 && !task.assigned_agent_id) {
+        const builderAgentId = deduped.get('builder') || Array.from(deduped.values())[0];
+        if (builderAgentId) {
           db.prepare('UPDATE tasks SET assigned_agent_id = ?, updated_at = datetime(\'now\') WHERE id = ?')
-            .run(builderRole.agent_id, taskId);
+            .run(builderAgentId, taskId);
         }
       }
     })();

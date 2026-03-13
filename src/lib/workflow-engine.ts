@@ -6,6 +6,7 @@
  */
 
 import { queryOne, queryAll, run } from '@/lib/db';
+import { pickDynamicAgent, escalateFailureIfNeeded, recordLearnerOnTransition } from '@/lib/task-governance';
 import { getMissionControlUrl } from '@/lib/config';
 import { broadcast } from '@/lib/events';
 import type { Task, WorkflowTemplate, WorkflowStage, TaskRole } from '@/lib/types';
@@ -153,8 +154,12 @@ export async function handleStageTransition(
     }
   }
   if (!roleAgent) {
-    // No agent for this role — record error but don't block status change
-    const errorMsg = `No agent assigned for role: ${targetStage.role}. Assign an agent to this task.`;
+    // Dynamic routing fallback (planner+rules) when explicit role assignment is missing
+    roleAgent = pickDynamicAgent(taskId, targetStage.role);
+  }
+
+  if (!roleAgent) {
+    const errorMsg = `No eligible agent found for stage role: ${targetStage.role}.`;
     run(
       'UPDATE tasks SET planning_dispatch_error = ?, updated_at = datetime(\'now\') WHERE id = ?',
       [errorMsg, taskId]
@@ -179,6 +184,10 @@ export async function handleStageTransition(
       `Stage handoff: ${targetStage.label} → ${roleAgent.name}${options?.failReason ? ` (reason: ${options.failReason})` : ''}`,
       now
     ]
+  );
+
+  recordLearnerOnTransition(taskId, options?.previousStatus || newStatus, newStatus, true).catch(err =>
+    console.error('[Learner] transition record failed:', err)
   );
 
   if (options?.skipDispatch) {
@@ -255,6 +264,9 @@ export async function handleStageFailure(
   if (updatedTask) {
     broadcast({ type: 'task_updated', payload: updatedTask });
   }
+
+  await recordLearnerOnTransition(taskId, currentStatus, targetStatus, false, failReason);
+  await escalateFailureIfNeeded(taskId, currentStatus);
 
   // Trigger handoff to the agent that owns the fail target stage
   return handleStageTransition(taskId, targetStatus, {

@@ -19,7 +19,27 @@ export async function GET(request: NextRequest) {
         SELECT * FROM agents ORDER BY is_master DESC, name ASC
       `);
     }
-    return NextResponse.json(agents);
+
+    // Reconcile status badges from real active-task state so stale DB flags don't keep agents green forever
+    const activeRows = queryAll<{ assigned_agent_id: string; c: number }>(
+      `SELECT assigned_agent_id, COUNT(*) as c
+       FROM tasks
+       WHERE assigned_agent_id IS NOT NULL
+         AND status IN ('assigned', 'in_progress', 'testing', 'verification')
+       GROUP BY assigned_agent_id`
+    );
+    const activeMap = new Map(activeRows.map(r => [r.assigned_agent_id, r.c]));
+
+    const reconciledAgents = agents.map((agent) => {
+      if (agent.status === 'offline') return agent;
+      const isActive = (activeMap.get(agent.id) || 0) > 0;
+      return {
+        ...agent,
+        status: isActive ? 'working' : 'standby',
+      } as Agent;
+    });
+
+    return NextResponse.json(reconciledAgents);
   } catch (error) {
     console.error('Failed to fetch agents:', error);
     return NextResponse.json({ error: 'Failed to fetch agents' }, { status: 500 });

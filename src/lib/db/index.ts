@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { schema } from './schema';
 import { runMigrations } from './migrations';
+import { ensureCatalogSyncScheduled } from '@/lib/agent-catalog-sync';
 
 const DB_PATH = process.env.DATABASE_PATH || path.join(process.cwd(), 'mission-control.db');
 
@@ -22,6 +23,9 @@ export function getDb(): Database.Database {
     // Run migrations for schema updates
     // This handles both new and existing databases
     runMigrations(db);
+
+    // Keep Mission Control's agent catalog synced with OpenClaw-installed agents
+    ensureCatalogSyncScheduled();
     
     if (isNewDb) {
       console.log('[DB] New database created at:', DB_PATH);

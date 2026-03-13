@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.1] - 2026-03-12
+
+### Added
+- **Canonical Gateway Agent Sync** — OpenClaw-installed agents are now treated as the canonical catalog and synced into Mission Control automatically (startup/scheduled + dispatch-triggered).
+- **Dynamic Task Routing (Hybrid)** — Task dispatch now supports dynamic per-task routing using planner candidates plus role/fallback safeguards.
+- **Governance Tests** — Added unit tests for evidence gating, done-state validation blocking, fixer auto-provisioning, and stage failure counting.
+
+### Changed
+- **Team Role Assignment UX** — Task role names are now normalized and non-freeform in Team assignment flow to prevent duplicate role keys (e.g., `Learner` vs `learner`).
+- **Board Override Path** — Added explicit board-only override support (disabled by default) with audit logging hooks.
+
+### Fixed
+- **Done-State Consistency** — Prevented tasks from ending in `done` when validation/failure state indicates unresolved issues.
+- **Stage Evidence Gates** — Enforced deliverable + activity requirements for stage progression; fail-back now requires a failure reason.
+- **Failure Escalation** — Added escalation after repeated same-stage failures with guaranteed fixer provisioning when missing.
+- **Working/Standby Agent Badges** — Agent status tags are now reconciled from active task state and update live with task updates (no manual refresh required after initial reload).
+- **Duplicate Learner Role Rows** — Fixed duplicate learner role assignment caused by case mismatch.
+
 ## [1.5.0] - 2026-03-10
 
 ### Added

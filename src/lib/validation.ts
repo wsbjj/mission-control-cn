@@ -47,6 +47,9 @@ export const UpdateTaskSchema = z.object({
   workflow_template_id: z.string().optional().nullable(),
   due_date: z.string().optional().nullable(),
   updated_by_agent_id: z.string().uuid().optional(),
+  status_reason: z.string().max(2000).optional(),
+  board_override: z.boolean().optional(),
+  override_reason: z.string().max(2000).optional(),
 });
 
 // Activity validation schema

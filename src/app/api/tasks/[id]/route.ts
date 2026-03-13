@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { queryOne, run, queryAll } from '@/lib/db';
+import { queryOne, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
 import { handleStageTransition, handleStageFailure, getTaskWorkflow, drainQueue, populateTaskRolesFromAgents } from '@/lib/workflow-engine';
-import { notifyLearner } from '@/lib/learner';
+import { hasStageEvidence, canUseBoardOverride, auditBoardOverride, taskCanBeDone, recordLearnerOnTransition } from '@/lib/task-governance';
+import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
 import { UpdateTaskSchema } from '@/lib/validation';
 import type { Task, UpdateTaskRequest, Agent, TaskDeliverable } from '@/lib/types';
 
@@ -45,7 +46,7 @@ export async function PATCH(
 ) {
   try {
     const { id } = await params;
-    const body: UpdateTaskRequest & { updated_by_agent_id?: string } = await request.json();
+    const body: UpdateTaskRequest & { updated_by_agent_id?: string; board_override?: boolean; override_reason?: string } = await request.json();
 
     // Validate input with Zod
     const validation = UpdateTaskSchema.safeParse(body);
@@ -63,6 +64,11 @@ export async function PATCH(
     if (!existing) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
+
+    // Keep OpenClaw agent catalog synced opportunistically on task updates
+    await syncGatewayAgentsToCatalog({ reason: 'task_patch' }).catch(err => {
+      console.warn('[Task PATCH] agent catalog sync failed:', err);
+    });
 
     const updates: string[] = [];
     const values: unknown[] = [];
@@ -104,6 +110,10 @@ export async function PATCH(
     if (validatedData.workflow_template_id !== undefined) {
       updates.push('workflow_template_id = ?');
       values.push(validatedData.workflow_template_id);
+    }
+    if (validatedData.status_reason !== undefined) {
+      updates.push('status_reason = ?');
+      values.push(validatedData.status_reason);
     }
 
     // Track if we need to dispatch task
@@ -152,8 +162,34 @@ export async function PATCH(
 
     // Handle status change
     if (nextStatus !== undefined && nextStatus !== existing.status) {
+      const boardOverrideRequested = Boolean(body.board_override);
+      const boardOverrideAllowed = boardOverrideRequested && canUseBoardOverride(request);
+
+      // Hard evidence gate for forward-stage transitions and completion
+      const enteringQualityStage = ['testing', 'review', 'verification', 'done'].includes(nextStatus);
+      if (enteringQualityStage && !boardOverrideAllowed && !hasStageEvidence(id)) {
+        return NextResponse.json(
+          { error: 'Evidence gate failed: stage transition requires at least one deliverable and one activity note' },
+          { status: 400 }
+        );
+      }
+
+      // Failure transitions must include status_reason
+      const failingBackwards = ['testing', 'review', 'verification'].includes(existing.status) && ['in_progress', 'assigned'].includes(nextStatus);
+      if (failingBackwards && !validatedData.status_reason) {
+        return NextResponse.json({ error: 'status_reason is required when failing a stage' }, { status: 400 });
+      }
+
+      if (nextStatus === 'done' && !boardOverrideAllowed && !taskCanBeDone(id)) {
+        return NextResponse.json({ error: 'Cannot mark done: validation/evidence requirements not met' }, { status: 400 });
+      }
+
       updates.push('status = ?');
       values.push(nextStatus);
+
+      if (boardOverrideAllowed) {
+        auditBoardOverride(id, existing.status, nextStatus, body.override_reason);
+      }
 
       // Auto-dispatch when moving to assigned (if we have a valid assignee)
       if (nextStatus === 'assigned' && effectiveAssignedAgentId) {
@@ -364,16 +400,11 @@ export async function PATCH(
       }
     }
 
-    // Notify learner on stage transitions (non-blocking)
+    // Learner must record every stage transition (non-blocking)
     if (nextStatus && nextStatus !== existing.status) {
-      const isForwardMove = !['inbox', 'assigned', 'planning', 'pending_dispatch'].includes(nextStatus);
-      if (isForwardMove) {
-        notifyLearner(id, {
-          previousStatus: existing.status,
-          newStatus: nextStatus,
-          passed: true,
-        }).catch(err => console.error('[Learner] notification failed:', err));
-      }
+      recordLearnerOnTransition(id, existing.status, nextStatus, true).catch(err =>
+        console.error('[Learner] notification failed:', err)
+      );
     }
 
     // Drain the review queue when a task reaches 'done' (frees the verification slot)

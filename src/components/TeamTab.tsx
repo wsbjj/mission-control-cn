@@ -17,6 +17,8 @@ interface RoleAssignment {
   agent_emoji?: string;
 }
 
+const normalizeRole = (value: string) => value.trim().toLowerCase();
+
 export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
   const { agents } = useMissionControl();
   const [roles, setRoles] = useState<RoleAssignment[]>([]);
@@ -40,7 +42,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
         if (rolesRes.ok) {
           const data = await rolesRes.json();
           setRoles(data.map((r: RoleAssignment & { agent_name: string; agent_emoji: string }) => ({
-            role: r.role,
+            role: normalizeRole(r.role),
             agent_id: r.agent_id,
             agent_name: r.agent_name,
             agent_emoji: r.agent_emoji,
@@ -68,10 +70,12 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
 
   const currentWorkflow = workflows.find(w => w.id === selectedWorkflow);
   const requiredRoles = currentWorkflow
-    ? currentWorkflow.stages.filter((s: WorkflowStage) => s.role).map((s: WorkflowStage) => s.role as string)
+    ? currentWorkflow.stages
+        .filter((s: WorkflowStage) => s.role)
+        .map((s: WorkflowStage) => normalizeRole(s.role as string))
     : [];
 
-  // Unique roles (remove duplicates)
+  // Unique roles (remove duplicates + normalize case)
   const uniqueRoles = Array.from(new Set(requiredRoles));
 
   const handleWorkflowChange = async (templateId: string) => {
@@ -93,9 +97,11 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
     const wf = workflows.find(w => w.id === templateId);
     if (wf) {
       const wfRoles = Array.from(new Set(
-        wf.stages.filter((s: WorkflowStage) => s.role).map((s: WorkflowStage) => s.role as string)
+        wf.stages
+          .filter((s: WorkflowStage) => s.role)
+          .map((s: WorkflowStage) => normalizeRole(s.role as string))
       ));
-      const existingRoleNames = roles.map(r => r.role);
+      const existingRoleNames = roles.map(r => normalizeRole(r.role));
       const newRoles = [...roles];
 
       for (const role of wfRoles) {
@@ -108,12 +114,13 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
   };
 
   const handleRoleAgentChange = (role: string, agentId: string) => {
+    const normalizedRole = normalizeRole(role);
     setRoles(prev => {
-      const existing = prev.find(r => r.role === role);
+      const existing = prev.find(r => normalizeRole(r.role) === normalizedRole);
       if (existing) {
-        return prev.map(r => r.role === role ? { ...r, agent_id: agentId } : r);
+        return prev.map(r => normalizeRole(r.role) === normalizedRole ? { ...r, role: normalizedRole, agent_id: agentId } : r);
       }
-      return [...prev, { role, agent_id: agentId }];
+      return [...prev, { role: normalizedRole, agent_id: agentId }];
     });
     setSaved(false);
   };
@@ -146,7 +153,19 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
   };
 
   const addCustomRole = () => {
-    setRoles(prev => [...prev, { role: '', agent_id: '' }]);
+    const catalog = Array.from(
+      new Set(
+        agents
+          .map(agent => normalizeRole(agent.role || ''))
+          .filter(Boolean)
+      )
+    ).sort();
+
+    const existing = new Set(roles.map(r => normalizeRole(r.role)).filter(Boolean));
+    const nextRole = catalog.find(role => !existing.has(role));
+    if (!nextRole) return;
+
+    setRoles(prev => [...prev, { role: nextRole, agent_id: '' }]);
   };
 
   if (loading) {
@@ -158,8 +177,22 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
   }
 
   const missingRoles = uniqueRoles.filter(role =>
-    !roles.find(r => r.role === role && r.agent_id)
+    !roles.find(r => normalizeRole(r.role) === role && r.agent_id)
   );
+
+  const roleCatalog = Array.from(
+    new Set(
+      agents
+        .map(agent => normalizeRole(agent.role || ''))
+        .filter(Boolean)
+    )
+  ).sort();
+
+  const assignedRoleNames = Array.from(
+    new Set(roles.map(r => normalizeRole(r.role)).filter(Boolean))
+  );
+
+  const addableRoles = roleCatalog.filter(role => !assignedRoleNames.includes(role));
 
   return (
     <div className="space-y-6">
@@ -227,7 +260,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
         <div className="space-y-3">
           {(uniqueRoles.length > 0 ? uniqueRoles : roles.map(r => r.role).filter(Boolean)).map(role => {
             if (!role) return null;
-            const assignment = roles.find(r => r.role === role);
+            const assignment = roles.find(r => normalizeRole(r.role) === normalizeRole(role));
             return (
               <div key={role} className="flex items-center gap-3">
                 <div className="w-24 text-xs font-medium text-mc-text-secondary capitalize flex-shrink-0">
@@ -249,19 +282,12 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
             );
           })}
 
-          {/* Custom role slots (not from workflow) */}
-          {roles.filter(r => !uniqueRoles.includes(r.role) && r.role).map((r, i) => (
+          {/* Custom role slots (not from workflow) - role names are catalog-driven (not editable text) */}
+          {roles.filter(r => !uniqueRoles.includes(normalizeRole(r.role)) && r.role).map((r, i) => (
             <div key={`custom-${i}`} className="flex items-center gap-3">
-              <input
-                value={r.role}
-                onChange={(e) => {
-                  setRoles(prev => prev.map((pr, pi) =>
-                    pi === roles.indexOf(r) ? { ...pr, role: e.target.value } : pr
-                  ));
-                }}
-                placeholder="Role name"
-                className="w-24 bg-mc-bg border border-mc-border rounded px-2 py-2 text-xs focus:outline-none focus:border-mc-accent"
-              />
+              <div className="w-24 text-xs font-medium text-mc-text-secondary capitalize flex-shrink-0">
+                {normalizeRole(r.role)}
+              </div>
               <select
                 value={r.agent_id}
                 onChange={(e) => handleRoleAgentChange(r.role, e.target.value)}
@@ -277,30 +303,11 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
             </div>
           ))}
 
-          {/* Learner role - always show if not in uniqueRoles */}
-          {!uniqueRoles.includes('learner') && (
-            <div className="flex items-center gap-3 opacity-60 hover:opacity-100 transition-opacity">
-              <div className="w-24 text-xs font-medium text-mc-text-secondary capitalize flex-shrink-0">
-                learner
-              </div>
-              <select
-                value={roles.find(r => r.role === 'learner')?.agent_id || ''}
-                onChange={(e) => handleRoleAgentChange('learner', e.target.value)}
-                className="flex-1 min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-              >
-                <option value="">Unassigned (optional)</option>
-                {agents.map(agent => (
-                  <option key={agent.id} value={agent.id}>
-                    {agent.avatar_emoji} {agent.name} — {agent.role}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
           <button
             onClick={addCustomRole}
-            className="text-xs text-mc-accent hover:text-mc-accent/80"
+            disabled={addableRoles.length === 0}
+            className="text-xs text-mc-accent hover:text-mc-accent/80 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={addableRoles.length === 0 ? 'No additional role types available to add' : 'Add custom role from agent catalog'}
           >
             + Add custom role
           </button>

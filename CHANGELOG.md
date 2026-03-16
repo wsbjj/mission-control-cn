@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.5.3] - 2026-03-13
+
+### Fixed
+- **Agent Status Stale After Stage Handoff** — When a task moved between pipeline stages (builder → tester → reviewer → done), the previous agent's status remained `working` in the database permanently. Now the workflow engine resets the outgoing agent to `standby` on every stage handoff (unless the agent has other active tasks). The task PATCH endpoint also resets the assigned agent when a task moves to `done`.
+
+---
+
+## [1.5.2] - 2026-03-13
+
+### Fixed
+- **Dispatch Deadlock Bug** — Fixed race condition where a failed dispatch left the task stuck in `in_progress` permanently. The planning poll idempotency check now detects stale dispatches (no agent activity within 2 minutes) and retries instead of silently skipping. Previously, if the OpenClaw WebSocket dropped during dispatch, the task would never recover.
+- **Dispatch Error Recovery** — The dispatch endpoint now resets the task to `assigned` with a recorded error when delivery to the agent fails, instead of returning a generic 500 and leaving the task in a broken state. This allows the UI and poll loop to detect and retry the dispatch.
+
+---
+
 ## [1.5.1] - 2026-03-12
 
 ### Added

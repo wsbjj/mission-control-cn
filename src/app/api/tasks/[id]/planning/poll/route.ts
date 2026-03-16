@@ -101,13 +101,26 @@ async function handlePlanningCompletion(taskId: string, parsed: any, messages: a
     }
   }
 
-  // Idempotency check
+  // Idempotency check — only skip dispatch if the agent has actually started working.
+  // A task stuck in 'in_progress' with no recent activity means a prior dispatch was
+  // silently lost (e.g. broken WebSocket) and MUST be retried.
   let skipDispatch = false;
   if (firstAgentId) {
-    const currentTask = queryOne<{ status: string }>('SELECT status FROM tasks WHERE id = ?', [taskId]);
+    const currentTask = queryOne<{ status: string; updated_at: string }>('SELECT status, updated_at FROM tasks WHERE id = ?', [taskId]);
     if (currentTask?.status === 'in_progress') {
-      console.log('[Planning Poll] Task already in progress, skipping dispatch');
-      skipDispatch = true;
+      // Check for any agent activity since dispatch — if none, allow re-dispatch
+      const recentActivity = queryOne<{ cnt: number }>(
+        `SELECT COUNT(*) as cnt FROM task_activities WHERE task_id = ? AND created_at > datetime('now', '-2 minutes')`,
+        [taskId]
+      );
+      if (recentActivity && recentActivity.cnt > 0) {
+        console.log('[Planning Poll] Task in progress with recent agent activity, skipping dispatch');
+        skipDispatch = true;
+      } else {
+        console.log('[Planning Poll] Task in_progress but no recent agent activity — retrying dispatch (likely lost message)');
+        // Reset to assigned so dispatch can proceed cleanly
+        run('UPDATE tasks SET status = ?, updated_at = datetime(\'now\') WHERE id = ?', ['assigned', taskId]);
+      }
     }
   }
 

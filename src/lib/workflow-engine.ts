@@ -168,6 +168,24 @@ export async function handleStageTransition(
     return { success: false, handedOff: false, error: errorMsg };
   }
 
+  // Reset previous agent to standby (if different from new agent and not working on other tasks)
+  const previousTask = queryOne<{ assigned_agent_id: string | null }>(
+    'SELECT assigned_agent_id FROM tasks WHERE id = ?',
+    [taskId]
+  );
+  if (previousTask?.assigned_agent_id && previousTask.assigned_agent_id !== roleAgent.id) {
+    const otherActiveTasks = queryOne<{ cnt: number }>(
+      `SELECT COUNT(*) as cnt FROM tasks WHERE assigned_agent_id = ? AND id != ? AND status IN ('assigned', 'in_progress', 'testing', 'verification')`,
+      [previousTask.assigned_agent_id, taskId]
+    );
+    if (!otherActiveTasks || otherActiveTasks.cnt === 0) {
+      run(
+        `UPDATE agents SET status = 'standby', updated_at = datetime('now') WHERE id = ? AND status = 'working'`,
+        [previousTask.assigned_agent_id]
+      );
+    }
+  }
+
   // Assign agent to task
   const now = new Date().toISOString();
   run(

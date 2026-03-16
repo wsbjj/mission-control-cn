@@ -38,20 +38,19 @@ https://github.com/user-attachments/assets/76af060c-fdb1-40cb-b575-46c7a807845d
 
 ---
 
-## 🆕 What's New in v1.5.1
+## 🆕 What's New in v1.5.3
 
-- **Canonical agent catalog sync** — OpenClaw agents now sync into Mission Control automatically (startup/scheduled + dispatch-triggered).
-- **Dynamic per-task routing** — Dispatch supports hybrid routing (planner candidates + role/fallback safeguards) instead of rigid fixed-role assumptions.
-- **Strict stage governance** — Evidence gates enforced for stage progression (`deliverable + activity`), fail-back requires reason, and inconsistent `done` states are blocked.
-- **Failure escalation with fixer guarantee** — Repeated same-stage failures escalate and auto-provision fixer coverage if missing.
-- **Team assignment cleanup** — Role-name normalization removed duplicate role rows (e.g., `Learner` vs `learner`) and eliminated editable free-text role-name drift.
-- **Live working/standby badges** — Agent status tags now update live from task state transitions.
+- **Agent status cleanup on stage handoff** — Previous agents are now reset to `standby` when tasks move between pipeline stages or complete. No more permanently stuck `working` badges.
+- **Dispatch deadlock fix** (v1.5.2) — Stale dispatches are detected and retried; failed dispatches reset to `assigned` with error recorded.
+
+### Previous
+- v1.5.1: Canonical agent catalog sync, dynamic per-task routing, strict stage governance, failure escalation, live badges.
 
 See the full [CHANGELOG](CHANGELOG.md) for details.
 
 ### Releases
 - GitHub Releases: https://github.com/crshdn/mission-control/releases
-- Latest target: `v1.5.1`
+- Latest target: `v1.5.3`
 
 ---
 ## ✨ Features

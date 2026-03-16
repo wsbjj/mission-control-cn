@@ -389,9 +389,18 @@ If you need help or clarification, ask the orchestrator.`;
       });
     } catch (err) {
       console.error('Failed to send message to agent:', err);
+      // Reset task to 'assigned' so dispatch can be retried
+      run(
+        `UPDATE tasks SET status = 'assigned', planning_dispatch_error = ?, updated_at = datetime('now') WHERE id = ? AND status != 'done'`,
+        [`Dispatch delivery failed: ${(err as Error).message}`, id]
+      );
+      const failedTask = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [id]);
+      if (failedTask) {
+        broadcast({ type: 'task_updated', payload: failedTask });
+      }
       return NextResponse.json(
-        { error: 'Internal server error' },
-        { status: 500 }
+        { error: `Failed to deliver task to agent: ${(err as Error).message}` },
+        { status: 503 }
       );
     }
   } catch (error) {

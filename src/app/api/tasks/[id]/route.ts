@@ -196,6 +196,20 @@ export async function PATCH(
         shouldDispatch = true;
       }
 
+      // When a task completes, reset the assigned agent to standby (if not working on other tasks)
+      if (nextStatus === 'done' && existing.assigned_agent_id) {
+        const otherActiveTasks = queryOne<{ cnt: number }>(
+          `SELECT COUNT(*) as cnt FROM tasks WHERE assigned_agent_id = ? AND id != ? AND status IN ('assigned', 'in_progress', 'testing', 'verification')`,
+          [existing.assigned_agent_id, id]
+        );
+        if (!otherActiveTasks || otherActiveTasks.cnt === 0) {
+          run(
+            `UPDATE agents SET status = 'standby', updated_at = datetime('now') WHERE id = ? AND status = 'working'`,
+            [existing.assigned_agent_id]
+          );
+        }
+      }
+
       // Log status change event
       const eventType = nextStatus === 'done' ? 'task_completed' : 'task_status_changed';
       run(

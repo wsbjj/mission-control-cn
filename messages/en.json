@@ -309,7 +309,13 @@
     "workflowForCritical": "for critical projects",
     "workflowForQuick": "for quick, straightforward tasks",
     "workflowForMost": "for most projects",
-    "workflowBuilderOnly": "Builder only"
+    "workflowBuilderOnly": "Builder only",
+    "planningCompleteTitle": "Planning Complete",
+    "planningAgentsCreatedTitle": "Agents Created:",
+    "imagesSectionTitle": "Images",
+    "imagesUploading": "Uploading...",
+    "imagesAddImage": "Add Image",
+    "imagesEmpty": "No images attached yet. Upload screenshots, designs, or other reference images here."
   },
   "agentModal": {
     "createTitle": "Create New Agent",

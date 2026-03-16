@@ -3,12 +3,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { ImagePlus, X, Loader2 } from 'lucide-react';
 import type { TaskImage } from '@/lib/types';
+import { useTranslations } from 'next-intl';
 
 interface TaskImagesProps {
   taskId: string;
 }
 
 export function TaskImages({ taskId }: TaskImagesProps) {
+  const t = useTranslations('taskModal');
   const [images, setImages] = useState<TaskImage[]>([]);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -73,7 +75,7 @@ export function TaskImages({ taskId }: TaskImagesProps) {
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-medium text-mc-text-secondary">
-          Images {images.length > 0 && `(${images.length})`}
+          {t('imagesSectionTitle')} {images.length > 0 && `(${images.length})`}
         </h3>
         <label className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-mc-accent hover:bg-mc-accent/10 rounded cursor-pointer transition-colors">
           {uploading ? (
@@ -81,7 +83,7 @@ export function TaskImages({ taskId }: TaskImagesProps) {
           ) : (
             <ImagePlus className="w-3.5 h-3.5" />
           )}
-          {uploading ? 'Uploading...' : 'Add Image'}
+          {uploading ? t('imagesUploading') : t('imagesAddImage')}
           <input
             ref={fileInputRef}
             type="file"
@@ -99,7 +101,7 @@ export function TaskImages({ taskId }: TaskImagesProps) {
 
       {images.length === 0 && !error && (
         <p className="text-xs text-mc-text-secondary">
-          No images attached. Add screenshots, mockups, or reference images.
+          {t('imagesEmpty')}
         </p>
       )}
 

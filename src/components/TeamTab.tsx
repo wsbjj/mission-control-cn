@@ -52,8 +52,22 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
         }
 
         if (workflowsRes.ok) {
-          const data = await workflowsRes.json();
-          setWorkflows(data);
+          const data: WorkflowTemplate[] = await workflowsRes.json();
+          // 去重：同名且阶段配置完全相同的模板只保留一份，避免在下拉中重复显示
+          // Deduplicate: keep only one template per unique (name + stages + description) key
+          const seen = new Set<string>();
+          const deduped: WorkflowTemplate[] = [];
+          for (const wf of data) {
+            const key = JSON.stringify({
+              name: wf.name,
+              description: wf.description || '',
+              stages: wf.stages,
+            });
+            if (seen.has(key)) continue;
+            seen.add(key);
+            deduped.push(wf);
+          }
+          setWorkflows(deduped);
         }
 
         if (taskRes.ok) {

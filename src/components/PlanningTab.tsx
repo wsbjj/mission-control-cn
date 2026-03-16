@@ -58,7 +58,8 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
   const [canceling, setCanceling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [otherText, setOtherText] = useState('');
-  const [selectedOption, setSelectedOption] = useState<string | null>(null);
+  // 支持多选：保存被选中的多个选项 **ID**，例如 "A" / "B" / "other"
+  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [retryingDispatch, setRetryingDispatch] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
@@ -144,7 +145,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
 
           if (questionChanged) {
             currentQuestionRef.current = newQuestion;
-            setSelectedOption(null);
+            setSelectedOptions([]);
             setOtherText('');
             setIsSubmittingAnswer(false);
           }
@@ -175,7 +176,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
     } finally {
       isPollingRef.current = false;
     }
-  }, [taskId, onSpecLocked, stopPolling, setState, setError, setIsSubmittingAnswer, setSelectedOption, setOtherText]);
+  }, [taskId, onSpecLocked, stopPolling, setState, setError, setIsSubmittingAnswer, setOtherText, setSelectedOptions]);
 
   // Start polling when waiting for response
   const startPolling = useCallback(() => {
@@ -253,16 +254,29 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
 
   // Submit answer
   const submitAnswer = async () => {
-    if (!selectedOption) return;
+    if (!selectedOptions.length) return;
+    if (!state?.currentQuestion) return;
 
     setSubmitting(true);
     setIsSubmittingAnswer(true); // Show submitting state in UI
     setError(null);
 
-    // Store submission for retry
+    // Store submission for retry（先构造易于模型理解的自然语言答案）
+    const hasOther = selectedOptions.includes('other');
+    const optionMap = new Map(state.currentQuestion.options.map((o) => [o.id, o]));
+    const normalizedAnswers = selectedOptions.map((id) => {
+      const opt = optionMap.get(id);
+      if (!opt) return id;
+      if (id === 'other' && otherText.trim()) {
+        // 把「其他」的补充说明带上
+        return `${opt.label}: ${otherText.trim()}`;
+      }
+      return opt.label;
+    });
+
     const submission = {
-      answer: selectedOption?.toLowerCase() === 'other' ? 'other' : selectedOption,
-      otherText: selectedOption?.toLowerCase() === 'other' ? otherText : undefined,
+      answer: normalizedAnswers.join('; '),
+      otherText: undefined,
     };
     lastSubmissionRef.current = submission;
 
@@ -283,14 +297,14 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
         setError(data.error || 'Failed to submit answer');
         setIsSubmittingAnswer(false); // Clear submitting state on error
         // Clear selection on error so user can try again
-        setSelectedOption(null);
+        setSelectedOptions([]);
         setOtherText('');
       }
     } catch (err) {
       setError('Failed to submit answer');
       setIsSubmittingAnswer(false); // Clear submitting state on error
       // Clear selection on error so user can try again
-      setSelectedOption(null);
+      setSelectedOptions([]);
       setOtherText('');
     } finally {
       // Don't re-enable submit button here — wait until next question arrives
@@ -322,14 +336,14 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
         setError(data.error || 'Failed to submit answer');
         // Clear submission state and selection on error so user can retry
         setIsSubmittingAnswer(false);
-        setSelectedOption(null);
+        setSelectedOptions([]);
         setOtherText('');
       }
     } catch (err) {
       setError('Failed to submit answer');
       // Clear submission state and selection on error so user can retry
       setIsSubmittingAnswer(false);
-      setSelectedOption(null);
+      setSelectedOptions([]);
       setOtherText('');
     } finally {
       setSubmitting(false);
@@ -412,7 +426,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2 text-green-400">
             <Lock className="w-5 h-5" />
-            <span className="font-medium">Planning Complete</span>
+            <span className="font-medium">{t('planningCompleteTitle')}</span>
           </div>
           {state.dispatchError && (
             <div className="text-right">
@@ -487,7 +501,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
         {/* Generated Agents */}
         {state.agents && state.agents.length > 0 && (
           <div>
-            <h3 className="font-medium mb-2">Agents Created:</h3>
+            <h3 className="font-medium mb-2">{t('planningAgentsCreatedTitle')}</h3>
             <div className="space-y-2">
               {state.agents.map((agent, i) => (
                 <div key={i} className="bg-mc-bg border border-mc-border rounded-lg p-3 flex items-center gap-3">
@@ -579,14 +593,20 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
 
             <div className="space-y-3">
               {state.currentQuestion.options.map((option) => {
-                const isSelected = selectedOption === option.label;
+                const isSelected = selectedOptions.includes(option.id);
                 const isOther = option.id === 'other' || option.label.toLowerCase() === 'other';
                 const isThisOptionSubmitting = isSubmittingAnswer && isSelected;
 
                 return (
                   <div key={option.id}>
                     <button
-                      onClick={() => setSelectedOption(option.label)}
+                      onClick={() => {
+                        setSelectedOptions((prev) =>
+                          prev.includes(option.id)
+                            ? prev.filter((l) => l !== option.id)
+                            : [...prev, option.id]
+                        );
+                      }}
                       disabled={submitting}
                       className={`w-full flex items-center gap-3 p-4 rounded-lg border transition-all text-left ${
                         isThisOptionSubmitting
@@ -667,7 +687,11 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
             <div className="mt-6">
               <button
                 onClick={submitAnswer}
-                disabled={!selectedOption || submitting || (selectedOption === 'Other' && !otherText.trim())}
+                disabled={
+                  !selectedOptions.length ||
+                  submitting ||
+                  (selectedOptions.some((label) => label.toLowerCase() === 'other') && !otherText.trim())
+                }
                 className="w-full px-6 py-3 bg-mc-accent text-mc-bg rounded-lg font-medium hover:bg-mc-accent/90 disabled:opacity-50 flex items-center justify-center gap-2"
               >
                 {submitting ? (

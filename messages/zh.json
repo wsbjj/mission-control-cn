@@ -309,7 +309,13 @@
     "workflowForCritical": "适用于关键项目",
     "workflowForQuick": "适用于快速、简单任务",
     "workflowForMost": "适用于大多数项目",
-    "workflowBuilderOnly": "仅构建者"
+    "workflowBuilderOnly": "仅构建者",
+    "planningCompleteTitle": "规划已完成",
+    "planningAgentsCreatedTitle": "已创建的智能体：",
+    "imagesSectionTitle": "图片",
+    "imagesUploading": "正在上传...",
+    "imagesAddImage": "添加图片",
+    "imagesEmpty": "尚未添加任何图片。你可以在这里上传截图、设计稿或其他参考图片。"
   },
   "agentModal": {
     "createTitle": "新建智能体",

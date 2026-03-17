@@ -225,25 +225,37 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
 
   // Start planning session
   const startPlanning = async () => {
+    // 如果已经有 session / 已经开始，就直接进入轮询，避免重复 POST
+    if (state?.isStarted || state?.sessionKey) {
+      startPolling();
+      return;
+    }
+
     setStarting(true);
     setError(null);
 
     try {
       const res = await fetch(`/api/tasks/${taskId}/planning`, { method: 'POST' });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (res.ok) {
         setState(prev => ({
           ...prev!,
-          sessionKey: data.sessionKey,
-          messages: data.messages || [],
+          sessionKey: (data as any).sessionKey,
+          messages: (data as any).messages || [],
           isStarted: true,
         }));
 
         // Start polling for the first question
         startPolling();
       } else {
-        setError(data.error || 'Failed to start planning');
+        // 如果后端说已经开始规划了，就刷新一次状态 + 开始轮询，而不是报错
+        if (data && (data as any).error === 'Planning already started') {
+          await loadState();
+          startPolling();
+          return;
+        }
+        setError((data as any).error || 'Failed to start planning');
       }
     } catch (err) {
       setError('Failed to start planning');

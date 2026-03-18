@@ -54,6 +54,25 @@ const normalizeRoleCanonical = (value: string) => {
   return aliasMap[raw] || aliasMap[lower] || normalizeRole(raw);
 };
 
+const createClientId = (): string => {
+  // Prefer the standard Web Crypto API when available
+  const c = (globalThis as any).crypto as Crypto | undefined;
+  if (c && typeof (c as any).randomUUID === 'function') {
+    return (c as any).randomUUID();
+  }
+  // RFC4122 v4 fallback using getRandomValues
+  if (c && typeof c.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16);
+    c.getRandomValues(bytes);
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant
+    const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  }
+  // Non-crypto fallback (not for security use; just stable keys)
+  return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
 export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
   const t = useTranslations('taskModal');
   const { agents } = useMissionControl();
@@ -171,10 +190,10 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
       setCustomTemplateDescription(base?.description ? translateWorkflowDescription(base.description) : '');
       setCustomStages(
         base?.stages?.length
-          ? base.stages.map(s => ({ ...s, id: crypto.randomUUID() }))
+          ? base.stages.map(s => ({ ...s, id: createClientId() }))
           : ([
-              { id: crypto.randomUUID(), label: 'Build', role: 'builder', status: 'in_progress' as TaskStatus },
-              { id: crypto.randomUUID(), label: 'Done', role: null, status: 'done' as TaskStatus },
+              { id: createClientId(), label: 'Build', role: 'builder', status: 'in_progress' as TaskStatus },
+              { id: createClientId(), label: 'Done', role: null, status: 'done' as TaskStatus },
             ] satisfies WorkflowStage[])
       );
       // Ensure role slots exist for the custom stages immediately
@@ -705,7 +724,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
                 onClick={() => {
                   setCustomStages(prev => [
                     ...prev,
-                    { id: crypto.randomUUID(), label: t('teamStageNewLabel'), role: 'builder', status: 'in_progress' as TaskStatus },
+                    { id: createClientId(), label: t('teamStageNewLabel'), role: 'builder', status: 'in_progress' as TaskStatus },
                   ]);
                 }}
                 className="min-h-11 px-4 py-2 border border-mc-accent text-mc-accent rounded text-sm font-medium hover:bg-mc-accent/10"

@@ -50,6 +50,19 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [mobileStatus, setMobileStatus] = useState<TaskStatus>('planning');
   const [statusMoveTask, setStatusMoveTask] = useState<Task | null>(null);
+  const [statusBlockedModal, setStatusBlockedModal] = useState<{title: string; message: string} | null>(null);
+  const [rollbackModal, setRollbackModal] = useState<{
+    task: Task;
+    targetStatus: TaskStatus;
+  } | null>(null);
+  const [rollbackReason, setRollbackReason] = useState('');
+  const [rollbackSubmitting, setRollbackSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!statusBlockedModal) return;
+    const timer = setTimeout(() => setStatusBlockedModal(null), 2500);
+    return () => clearTimeout(timer);
+  }, [statusBlockedModal]);
 
   // 按最近更新时间（若无则按创建时间）降序排序任务，
   // 确保最近更新或新建的任务显示在列顶部 / Sort tasks by most recent updated_at (fallback to created_at)
@@ -63,16 +76,48 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
         return bTime - aTime;
       });
 
-  const updateTaskStatusWithPersist = async (task: Task, targetStatus: TaskStatus) => {
-    if (task.status === targetStatus) return;
+  const isStatusAllowedByWorkflow = (task: Task, targetStatus: TaskStatus): boolean => {
+    // Non-workflow statuses are always allowed
+    const alwaysAllowed: TaskStatus[] = ['planning', 'pending_dispatch', 'inbox', 'assigned'];
+    if (alwaysAllowed.includes(targetStatus)) return true;
 
+    const allowed = (task as Task & { workflow_allowed_statuses?: TaskStatus[] }).workflow_allowed_statuses;
+    if (!allowed || allowed.length === 0) return true;
+    return allowed.includes(targetStatus);
+  };
+
+  const showStatusBlocked = (task: Task, targetStatus: TaskStatus) => {
+    const msg = t('statusNotAllowed', {status: targetStatus});
+    addEvent({
+      id: task.id + '-status-blocked-' + Date.now(),
+      type: 'system',
+      task_id: task.id,
+      message: msg,
+      created_at: new Date().toISOString(),
+    });
+    setStatusBlockedModal({
+      title: t('moveTaskModalTitle'),
+      message: msg,
+    });
+  };
+
+  const isFailingBackwards = (from: TaskStatus, to: TaskStatus) =>
+    ['testing', 'review', 'verification'].includes(from) && ['in_progress', 'assigned'].includes(to);
+
+  const persistStatusChange = async (
+    task: Task,
+    targetStatus: TaskStatus,
+    statusReason?: string
+  ): Promise<boolean> => {
     updateTaskStatus(task.id, targetStatus);
-
     try {
       const res = await fetch(`/api/tasks/${task.id}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: targetStatus }),
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          status: targetStatus,
+          ...(statusReason ? {status_reason: statusReason} : {}),
+        }),
       });
 
       if (res.ok) {
@@ -80,7 +125,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
           id: task.id + '-' + Date.now(),
           type: targetStatus === 'done' ? 'task_completed' : 'task_status_changed',
           task_id: task.id,
-          message: `Task "${task.title}" moved to ${targetStatus}`,
+          message: `任务「${task.title}」已移至 ${targetStatus}`,
           created_at: new Date().toISOString(),
         });
 
@@ -97,11 +142,65 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
             console.error('Auto-dispatch failed:', result.error);
           }
         }
+
+        return true;
       }
+
+      const data = await res.json().catch(() => null);
+      if (data?.error_code === 'STATUS_NOT_ALLOWED') {
+        showStatusBlocked(task, targetStatus);
+        updateTaskStatus(task.id, task.status);
+        return false;
+      }
+      if (data?.error_code === 'STATUS_REASON_REQUIRED') {
+        // Backend safeguard; in normal flow we should have shown rollback modal first.
+        addEvent({
+          id: task.id + '-status-failed-' + Date.now(),
+          type: 'system',
+          task_id: task.id,
+          message: t('statusReasonRequired'),
+          created_at: new Date().toISOString(),
+        });
+        setStatusBlockedModal({
+          title: t('moveTaskModalTitle'),
+          message: t('statusReasonRequired'),
+        });
+        updateTaskStatus(task.id, task.status);
+        return false;
+      }
+
+      addEvent({
+        id: task.id + '-status-failed-' + Date.now(),
+        type: 'system',
+        task_id: task.id,
+        message: (data && data.error) ? String(data.error) : t('networkError'),
+        created_at: new Date().toISOString(),
+      });
+      updateTaskStatus(task.id, task.status);
+      return false;
     } catch (error) {
       console.error('Failed to update task status:', error);
       updateTaskStatus(task.id, task.status);
+      return false;
     }
+  };
+
+  const updateTaskStatusWithPersist = async (task: Task, targetStatus: TaskStatus): Promise<boolean> => {
+    if (task.status === targetStatus) return;
+
+    if (!isStatusAllowedByWorkflow(task, targetStatus)) {
+      showStatusBlocked(task, targetStatus);
+      return false;
+    }
+
+    // Manual rollback requires a reason. Ask first; if user cancels, keep current status.
+    if (isFailingBackwards(task.status, targetStatus)) {
+      setRollbackReason('');
+      setRollbackModal({ task, targetStatus });
+      return false;
+    }
+
+    return await persistStatusChange(task, targetStatus);
   };
 
   const handleDragStart = (e: React.DragEvent, task: Task) => {
@@ -120,6 +219,12 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
     if (mobileMode) return;
     e.preventDefault();
     if (!draggedTask || draggedTask.status === targetStatus) {
+      setDraggedTask(null);
+      return;
+    }
+
+    if (!isStatusAllowedByWorkflow(draggedTask, targetStatus)) {
+      showStatusBlocked(draggedTask, targetStatus);
       setDraggedTask(null);
       return;
     }
@@ -234,6 +339,75 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
       {showCreateModal && <TaskModal onClose={() => setShowCreateModal(false)} workspaceId={workspaceId} />}
       {editingTask && <TaskModal task={editingTask} onClose={() => setEditingTask(null)} workspaceId={workspaceId} />}
 
+      {statusBlockedModal && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 p-4 flex items-end sm:items-center sm:justify-center"
+          onClick={() => setStatusBlockedModal(null)}
+        >
+          <div
+            className="w-full sm:max-w-md bg-mc-bg-secondary border border-mc-border rounded-t-xl sm:rounded-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm text-mc-text-secondary mb-2">{statusBlockedModal.title}</div>
+            <div className="text-sm text-mc-text-secondary">{statusBlockedModal.message}</div>
+          </div>
+        </div>
+      )}
+
+      {rollbackModal && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/60 p-4 flex items-end sm:items-center sm:justify-center"
+          onClick={() => {
+            if (rollbackSubmitting) return;
+            setRollbackModal(null);
+          }}
+        >
+          <div
+            className="w-full sm:max-w-md bg-mc-bg-secondary border border-mc-border rounded-t-xl sm:rounded-xl p-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="text-sm font-medium mb-2">{t('rollbackReasonTitle')}</div>
+            <div className="text-sm text-mc-text-secondary mb-3">
+              {t('rollbackReasonHint', { from: rollbackModal.task.status, to: rollbackModal.targetStatus })}
+            </div>
+            <textarea
+              value={rollbackReason}
+              onChange={(e) => setRollbackReason(e.target.value)}
+              placeholder={t('rollbackReasonPlaceholder')}
+              className="w-full min-h-24 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent resize-none"
+              disabled={rollbackSubmitting}
+            />
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <button
+                className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-sm text-mc-text-secondary hover:bg-mc-bg-tertiary disabled:opacity-50"
+                onClick={() => setRollbackModal(null)}
+                disabled={rollbackSubmitting}
+              >
+                {t('rollbackReasonCancel')}
+              </button>
+              <button
+                className="min-h-11 px-4 rounded-lg bg-mc-accent text-mc-bg text-sm font-medium hover:bg-mc-accent/90 disabled:opacity-50"
+                disabled={rollbackSubmitting || !rollbackReason.trim()}
+                onClick={async () => {
+                  if (!rollbackModal) return;
+                  setRollbackSubmitting(true);
+                  const ok = await persistStatusChange(rollbackModal.task, rollbackModal.targetStatus, rollbackReason.trim());
+                  setRollbackSubmitting(false);
+                  if (ok) {
+                    setRollbackModal(null);
+                    setRollbackReason('');
+                    // If mobile "move status" modal is open, close it after a successful rollback.
+                    setStatusMoveTask(null);
+                  }
+                }}
+              >
+                {rollbackSubmitting ? t('rollbackReasonSubmitting') : t('rollbackReasonConfirm')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {mobileMode && statusMoveTask && (
         <div className="fixed inset-0 z-50 bg-black/60 p-4 flex items-end sm:items-center sm:justify-center" onClick={() => setStatusMoveTask(null)}>
           <div
@@ -249,10 +423,10 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                 <button
                   key={column.id}
                   onClick={async () => {
-                    await updateTaskStatusWithPersist(statusMoveTask, column.id);
-                    setStatusMoveTask(null);
+                    const ok = await updateTaskStatusWithPersist(statusMoveTask, column.id);
+                    if (ok) setStatusMoveTask(null);
                   }}
-                  disabled={statusMoveTask.status === column.id}
+                  disabled={statusMoveTask.status === column.id || !isStatusAllowedByWorkflow(statusMoveTask, column.id)}
                   className="w-full min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-left text-sm disabled:opacity-40"
                 >
                   {t(column.labelKey) /* 状态按钮文案 / Status button label */}

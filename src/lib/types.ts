@@ -66,6 +66,9 @@ export interface Task {
   business_id: string;
   due_date?: string;
   workflow_template_id?: string;
+  // Derived field (API-only): statuses allowed by the task's workflow template.
+  // Present on GET /api/tasks list for client-side guards.
+  workflow_allowed_statuses?: TaskStatus[];
   status_reason?: string;
   // Planning/dispatch metadata (optional fields from tasks table)
   planning_complete?: number;

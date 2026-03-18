@@ -4,7 +4,7 @@ import { queryAll, queryOne, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { CreateTaskSchema } from '@/lib/validation';
 import { populateTaskRolesFromAgents } from '@/lib/workflow-engine';
-import type { Task, CreateTaskRequest, Agent } from '@/lib/types';
+import type { Task, CreateTaskRequest, Agent, WorkflowStage } from '@/lib/types';
 
 // GET /api/tasks - List all tasks with optional filters
 
@@ -22,10 +22,12 @@ export async function GET(request: NextRequest) {
         t.*,
         aa.name as assigned_agent_name,
         aa.avatar_emoji as assigned_agent_emoji,
-        ca.name as created_by_agent_name
+        ca.name as created_by_agent_name,
+        wt.stages as workflow_stages
       FROM tasks t
       LEFT JOIN agents aa ON t.assigned_agent_id = aa.id
       LEFT JOIN agents ca ON t.created_by_agent_id = ca.id
+      LEFT JOIN workflow_templates wt ON t.workflow_template_id = wt.id
       WHERE 1=1
     `;
     const params: unknown[] = [];
@@ -56,19 +58,39 @@ export async function GET(request: NextRequest) {
 
     sql += ' ORDER BY t.created_at DESC';
 
-    const tasks = queryAll<Task & { assigned_agent_name?: string; assigned_agent_emoji?: string; created_by_agent_name?: string }>(sql, params);
+    const tasks = queryAll<
+      Task & {
+        assigned_agent_name?: string;
+        assigned_agent_emoji?: string;
+        created_by_agent_name?: string;
+        workflow_stages?: string | null;
+      }
+    >(sql, params);
 
     // Transform to include nested agent info
-    const transformedTasks = tasks.map((task) => ({
-      ...task,
-      assigned_agent: task.assigned_agent_id
-        ? {
-            id: task.assigned_agent_id,
-            name: task.assigned_agent_name,
-            avatar_emoji: task.assigned_agent_emoji,
-          }
-        : undefined,
-    }));
+    const transformedTasks = tasks.map((task) => {
+      let workflow_allowed_statuses: string[] | undefined = undefined;
+      if (task.workflow_stages) {
+        try {
+          const stages = JSON.parse(task.workflow_stages || '[]') as WorkflowStage[];
+          workflow_allowed_statuses = Array.from(new Set(stages.map(s => s.status))).filter(Boolean) as string[];
+        } catch {
+          workflow_allowed_statuses = undefined;
+        }
+      }
+
+      return {
+        ...task,
+        workflow_allowed_statuses,
+        assigned_agent: task.assigned_agent_id
+          ? {
+              id: task.assigned_agent_id,
+              name: task.assigned_agent_name,
+              avatar_emoji: task.assigned_agent_emoji,
+            }
+          : undefined,
+      };
+    });
 
     return NextResponse.json(transformedTasks);
   } catch (error) {

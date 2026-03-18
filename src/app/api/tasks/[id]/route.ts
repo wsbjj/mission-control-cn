@@ -165,6 +165,26 @@ export async function PATCH(
       const boardOverrideRequested = Boolean(body.board_override);
       const boardOverrideAllowed = boardOverrideRequested && canUseBoardOverride(request);
 
+      // Workflow status guard: prevent moving into statuses not defined by the task's workflow template.
+      // This avoids tasks getting "stuck" in columns the workflow doesn't know how to handle.
+      const workflow = getTaskWorkflow(id);
+      const workflowControlled: Array<Task['status']> = ['in_progress', 'testing', 'review', 'verification', 'done'];
+      if (workflow && workflowControlled.includes(nextStatus as any)) {
+        const allowed = Array.from(new Set(workflow.stages.map(s => s.status)));
+        if (!allowed.includes(nextStatus as any)) {
+          return NextResponse.json(
+            {
+              error_code: 'STATUS_NOT_ALLOWED',
+              status: nextStatus,
+              allowed_statuses: allowed,
+              workflow_template_id: workflow.id,
+              workflow_name: workflow.name,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
       // Hard evidence gate for forward-stage transitions and completion
       const enteringQualityStage = ['testing', 'review', 'verification', 'done'].includes(nextStatus);
       if (enteringQualityStage && !boardOverrideAllowed && !hasStageEvidence(id)) {
@@ -177,7 +197,14 @@ export async function PATCH(
       // Failure transitions must include status_reason
       const failingBackwards = ['testing', 'review', 'verification'].includes(existing.status) && ['in_progress', 'assigned'].includes(nextStatus);
       if (failingBackwards && !validatedData.status_reason) {
-        return NextResponse.json({ error: 'status_reason is required when failing a stage' }, { status: 400 });
+        return NextResponse.json(
+          {
+            error_code: 'STATUS_REASON_REQUIRED',
+            from_status: existing.status,
+            to_status: nextStatus,
+          },
+          { status: 400 }
+        );
       }
 
       if (nextStatus === 'done' && !boardOverrideAllowed && !taskCanBeDone(id)) {

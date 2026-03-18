@@ -82,7 +82,18 @@ export async function POST(
       [id]
     );
 
-    return NextResponse.json(template, { status: 201 });
+    if (!template) {
+      return NextResponse.json({ error: 'Failed to create template' }, { status: 500 });
+    }
+
+    const parsed = {
+      ...template,
+      stages: JSON.parse((template as any).stages || '[]'),
+      fail_targets: JSON.parse((template as any).fail_targets || '{}'),
+      is_default: Boolean((template as any).is_default),
+    };
+
+    return NextResponse.json(parsed, { status: 201 });
   } catch (error) {
     console.error('Failed to create workflow template:', error);
     return NextResponse.json({ error: 'Failed to create template' }, { status: 500 });

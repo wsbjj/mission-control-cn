@@ -6,7 +6,7 @@ import { sendChatSendWithRetry } from '@/lib/openclaw-dispatch-send';
 import { broadcast } from '@/lib/events';
 import { getProjectsPath, getMissionControlUrl } from '@/lib/config';
 import { getRelevantKnowledge, formatKnowledgeForDispatch } from '@/lib/learner';
-import { getTaskWorkflow } from '@/lib/workflow-engine';
+import { getTaskWorkflow, handleStageTransition } from '@/lib/workflow-engine';
 import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
 import { pickDynamicAgent } from '@/lib/task-governance';
 import type { Task, Agent, OpenClawSession, WorkflowStage, TaskImage } from '@/lib/types';
@@ -52,7 +52,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           ? 'tester'
           : status === 'review'
             ? 'reviewer'
-            : status === 'verification' || /^verification_v\d+$/.test(String(status))
+            : status === 'verification'
               ? 'reviewer'
               : 'builder';
 
@@ -290,7 +290,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     let completionInstructions: string;
     if (isBuilder) {
-      completionInstructions = `**IMPORTANT:** After completing work, you MUST call these APIs:
+      completionInstructions = `**IMPORTANT (STATE UPDATES ARE STRUCTURED ONLY):**
+- You MUST NOT change task status just because the natural-language description mentions words like "测试", "验证", "审核", "进行中", "分配", "规划", "收件箱", "已完成" or similar.
+- You may *think* about what the next status should be, but the status ONLY changes when you explicitly call the PATCH API below with a structured \`status\` field.
+
+After completing work, you MUST call these APIs:
 1. Log activity: POST ${missionControlUrl}/api/tasks/${task.id}/activities
    Body: {"activity_type": "completed", "message": "Description of what was done"}
 2. Register deliverable: POST ${missionControlUrl}/api/tasks/${task.id}/deliverables
@@ -302,6 +306,10 @@ When complete, reply with:
 \`TASK_COMPLETE: [brief summary of what you did]\``;
     } else if (isTester) {
       completionInstructions = `**YOUR ROLE: TESTER** — Test the deliverables for this task.
+
+**STATE UPDATE RULES (DO NOT IGNORE):**
+- Do NOT change task status based purely on natural-language text from the user or from the task description.
+- You may decide that the task should move to the next stage, but the ONLY way to change status is to call PATCH with an explicit \`status\` value as shown below.
 
 ${statusLineForPrompt}
 
@@ -324,6 +332,10 @@ Reply with: \`TEST_PASS: [summary]\` or \`TEST_FAIL: [what failed]\``;
           ? `\n**Before PATCH to \`done\`:** you must already have at least one **deliverable** and one qualifying **activity** on this task (evidence gate), or the API will reject. Add deliverable via POST .../deliverables if needed.\n`
           : '';
       completionInstructions = `**YOUR ROLE: VERIFIER** — Verify that all work meets quality standards.
+
+**STATE UPDATE RULES (STRICT):**
+- Never update the task status just because text mentions "完成" / "验证通过" / "审核通过" or similar phrases.
+- You are only allowed to change status via PATCH with an explicit \`status\` field when you have finished verification for this stage.
 
 ${statusLineForPrompt}
 
@@ -389,13 +401,24 @@ If you need help or clarification, ask the orchestrator.`;
         idempotencyKey: `dispatch-${task.id}-${Date.now()}`,
       });
 
-      // Only move to in_progress for builder dispatch (task is in 'assigned' status)
-      // For tester/reviewer/verifier, the task status is already correct
+      // Only move to in_progress for builder dispatch (task is in 'assigned' status).
+      // For tester/reviewer/verifier, the task status is already correct.
+      // When moving assigned -> in_progress, also run handleStageTransition so that:
+      // - builder stages with multiple agents can spawn parallel subtasks, and
+      // - single-builder stages just update assignment metadata WITHOUT re-dispatching.
       if (task.status === 'assigned') {
         run(
           'UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?',
           ['in_progress', now, id]
         );
+        try {
+          await handleStageTransition(id, 'in_progress', {
+            previousStatus: 'assigned',
+            skipDispatch: true, // we've already dispatched this task above
+          });
+        } catch (err) {
+          console.error('[Dispatch] handleStageTransition failed for build stage:', err);
+        }
       }
 
       // Broadcast task update

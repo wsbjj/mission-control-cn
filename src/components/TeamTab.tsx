@@ -279,11 +279,6 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
     setSaved(false);
   };
 
-  const verificationUsageCount = customStages.filter(s => {
-    const st = String(s.status || '');
-    return s.status === 'verification' || /^verification_v\d+$/.test(st);
-  }).length;
-
   const taskStatuses: TaskStatus[] = [
     'inbox',
     'assigned',
@@ -291,10 +286,6 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
     'testing',
     'review',
     'verification',
-    // Follow your "auto generate next round" idea:
-    // if verification (or any verification_vN) is used N times in this template,
-    // show verification_v2..verification_v(N+1) as selectable options.
-    ...Array.from({ length: verificationUsageCount }, (_, i) => `verification_v${i + 2}` as TaskStatus),
     'done',
   ];
 

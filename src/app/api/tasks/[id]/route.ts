@@ -6,6 +6,7 @@ import { getMissionControlUrl } from '@/lib/config';
 import { handleStageTransition, handleStageFailure, getTaskWorkflow, drainQueue, populateTaskRolesFromAgents, maybeAdvanceParentFromSubtasks } from '@/lib/workflow-engine';
 import { hasStageEvidence, canUseBoardOverride, auditBoardOverride, taskCanBeDone, recordLearnerOnTransition } from '@/lib/task-governance';
 import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
+import { deleteTaskCascade } from '@/lib/task-delete';
 import { UpdateTaskSchema } from '@/lib/validation';
 import type { Task, UpdateTaskRequest, Agent, TaskDeliverable } from '@/lib/types';
 
@@ -505,40 +506,17 @@ export async function DELETE(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Reset agent status if this was their only active task
-    if (existing.assigned_agent_id) {
-      const otherActive = queryOne<{ count: number }>(
-        `SELECT COUNT(*) as count FROM tasks
-           WHERE assigned_agent_id = ?
-             AND (status IN ('assigned', 'in_progress', 'testing', 'verification') OR status LIKE 'verification_v%')
-           AND id != ?`,
-        [existing.assigned_agent_id, id]
-      );
-      if (!otherActive || otherActive.count === 0) {
-        run(
-          'UPDATE agents SET status = ?, updated_at = ? WHERE id = ? AND status = ?',
-          ['standby', new Date().toISOString(), existing.assigned_agent_id, 'working']
-        );
-      }
+    // 子任务 parent_task_id → 父任务会阻止直接删父任务；同时清理 knowledge_entries 等无 CASCADE 的引用
+    const deletedIds = deleteTaskCascade(id);
+
+    for (const deletedId of deletedIds) {
+      broadcast({
+        type: 'task_deleted',
+        payload: { id: deletedId },
+      });
     }
 
-    // Delete or nullify related records first (foreign key constraints)
-    // Note: task_activities and task_deliverables have ON DELETE CASCADE
-    run('DELETE FROM openclaw_sessions WHERE task_id = ?', [id]);
-    run('DELETE FROM events WHERE task_id = ?', [id]);
-    // Conversations reference tasks - nullify or delete
-    run('UPDATE conversations SET task_id = NULL WHERE task_id = ?', [id]);
-
-    // Now delete the task (cascades to task_activities and task_deliverables)
-    run('DELETE FROM tasks WHERE id = ?', [id]);
-
-    // Broadcast deletion via SSE
-    broadcast({
-      type: 'task_deleted',
-      payload: { id },
-    });
-
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, deleted_ids: deletedIds });
   } catch (error) {
     console.error('Failed to delete task:', error);
     return NextResponse.json({ error: 'Failed to delete task' }, { status: 500 });

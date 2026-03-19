@@ -38,11 +38,11 @@ test('evidence gate requires deliverable + activity', () => {
   assert.equal(hasStageEvidence(taskId), true);
 });
 
-test('task cannot be done when status_reason indicates failure', () => {
+test('task cannot be done when status_reason is workflow fail-loop (Failed: prefix)', () => {
   const taskId = crypto.randomUUID();
   seedTask(taskId);
 
-  run(`UPDATE tasks SET status_reason = 'Validation failed: CSS broken' WHERE id = ?`, [taskId]);
+  run(`UPDATE tasks SET status_reason = 'Failed: tests did not pass' WHERE id = ?`, [taskId]);
   run(
     `INSERT INTO task_deliverables (id, task_id, deliverable_type, title, created_at)
      VALUES (lower(hex(randomblob(16))), ?, 'file', 'index.html', datetime('now'))`,
@@ -55,6 +55,25 @@ test('task cannot be done when status_reason indicates failure', () => {
   );
 
   assert.equal(taskCanBeDone(taskId), false);
+});
+
+test('task can be done when status_reason mentions fail but is not Failed: prefix (agent note recovery)', () => {
+  const taskId = crypto.randomUUID();
+  seedTask(taskId);
+
+  run(`UPDATE tasks SET status_reason = 'Verification failed: no output dir (later fixed)' WHERE id = ?`, [taskId]);
+  run(
+    `INSERT INTO task_deliverables (id, task_id, deliverable_type, title, created_at)
+     VALUES (lower(hex(randomblob(16))), ?, 'file', 'index.html', datetime('now'))`,
+    [taskId]
+  );
+  run(
+    `INSERT INTO task_activities (id, task_id, activity_type, message, created_at)
+     VALUES (lower(hex(randomblob(16))), ?, 'completed', 'did thing', datetime('now'))`,
+    [taskId]
+  );
+
+  assert.equal(taskCanBeDone(taskId), true);
 });
 
 test('ensureFixerExists creates fixer when missing', () => {

@@ -457,9 +457,16 @@ export async function handleStageFailure(
   }
 
   const targetStatus = workflow.fail_targets[currentStatus];
-  const resolvedTargetStatus =
+  let resolvedTargetStatus =
     targetStatus ||
     (String(currentStatus).startsWith('verification_v') ? workflow.fail_targets['verification'] : undefined);
+
+  // Custom templates may omit fail_targets; verification rounds default to builder rework.
+  const isVerificationStage =
+    currentStatus === 'verification' || /^verification_v\d+$/.test(String(currentStatus));
+  if (!resolvedTargetStatus && isVerificationStage) {
+    resolvedTargetStatus = 'in_progress';
+  }
 
   if (!resolvedTargetStatus) {
     return { success: false, handedOff: false, error: `No fail target defined for status: ${currentStatus}` };

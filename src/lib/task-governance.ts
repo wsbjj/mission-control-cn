@@ -98,11 +98,18 @@ export async function recordLearnerOnTransition(taskId: string, previousStatus: 
   await notifyLearner(taskId, { previousStatus, newStatus, passed, failReason });
 }
 
+/**
+ * Marking done is blocked when `status_reason` is a workflow fail-loop message
+ * (`handleStageFailure` sets `Failed: …`). We intentionally do NOT treat arbitrary
+ * text containing "fail" (e.g. "Verification failed: …" left over from an agent note)
+ * as a permanent block — otherwise tasks never reach `done` after recovery + evidence.
+ */
 export function taskCanBeDone(taskId: string): boolean {
   const task = queryOne<{ status: string; status_reason?: string }>('SELECT status, status_reason FROM tasks WHERE id = ?', [taskId]);
   if (!task) return false;
-  const hasValidationFailure = (task.status_reason || '').toLowerCase().includes('fail');
-  return !hasValidationFailure && hasStageEvidence(taskId);
+  const reason = (task.status_reason || '').trim();
+  const hasWorkflowFailureReason = /^Failed:/i.test(reason);
+  return !hasWorkflowFailureReason && hasStageEvidence(taskId);
 }
 
 export function isActiveStatus(status: string): boolean {

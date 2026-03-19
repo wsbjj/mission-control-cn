@@ -30,6 +30,12 @@ export interface GatewayConfigSnapshot {
 const GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
 const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || '';
 
+/** Default RPC wait time (ms). Override with OPENCLAW_RPC_TIMEOUT_MS. */
+const OPENCLAW_RPC_TIMEOUT_MS = Math.max(
+  5000,
+  Number.parseInt(process.env.OPENCLAW_RPC_TIMEOUT_MS || '30000', 10) || 30000
+);
+
 // Global deduplication cache that persists across module reloads in Next.js dev
 // Use globalThis to ensure it's shared across all instances
 // Using Map for LRU (access time tracking) instead of Set
@@ -47,6 +53,8 @@ export class OpenClawClient extends EventEmitter {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private messageId = 0;
   private pendingRequests = new Map<string | number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+  /** Cleared when the RPC completes or times out */
+  private rpcTimeouts = new Map<string | number, ReturnType<typeof setTimeout>>();
   private connected = false;
   private authenticated = false; // Track auth state separately from connection state
   private connecting: Promise<void> | null = null; // Lock to prevent multiple simultaneous connection attempts
@@ -383,6 +391,7 @@ export class OpenClawClient extends EventEmitter {
       const pending = this.pendingRequests.get(requestId);
       if (pending) {
         const { resolve, reject } = pending;
+        this.clearRpcTimeout(requestId);
         this.pendingRequests.delete(requestId);
 
         if (data.ok === false && data.error) {
@@ -398,6 +407,7 @@ export class OpenClawClient extends EventEmitter {
     const legacyId = data.id as string | number | undefined;
     if (legacyId !== undefined && this.pendingRequests.has(legacyId)) {
       const { resolve, reject } = this.pendingRequests.get(legacyId)!;
+      this.clearRpcTimeout(legacyId);
       this.pendingRequests.delete(legacyId);
 
       if (data.error) {
@@ -412,6 +422,14 @@ export class OpenClawClient extends EventEmitter {
     if (data.method) {
       this.emit('notification', data);
       this.emit(data.method, data.params);
+    }
+  }
+
+  private clearRpcTimeout(requestId: string | number): void {
+    const t = this.rpcTimeouts.get(requestId);
+    if (t) {
+      clearTimeout(t);
+      this.rpcTimeouts.delete(requestId);
     }
   }
 
@@ -432,24 +450,33 @@ export class OpenClawClient extends EventEmitter {
     }, 10000); // 10 seconds between reconnect attempts
   }
 
-  async call<T = unknown>(method: string, params?: Record<string, unknown>): Promise<T> {
+  /**
+   * @param options.timeoutMs — override OPENCLAW_RPC_TIMEOUT_MS for this call (e.g. chat.send)
+   */
+  async call<T = unknown>(
+    method: string,
+    params?: Record<string, unknown>,
+    options?: { timeoutMs?: number }
+  ): Promise<T> {
     if (!this.ws || !this.connected || !this.authenticated) {
       throw new Error('Not connected to OpenClaw Gateway');
     }
 
     const id = crypto.randomUUID();
     const message = { type: 'req', id, method, params };
+    const timeoutMs = Math.max(1000, options?.timeoutMs ?? OPENCLAW_RPC_TIMEOUT_MS);
 
     return new Promise((resolve, reject) => {
       this.pendingRequests.set(id, { resolve: resolve as (value: unknown) => void, reject });
 
-      // Timeout after 30 seconds
-      setTimeout(() => {
+      const timeoutId = setTimeout(() => {
+        this.rpcTimeouts.delete(id);
         if (this.pendingRequests.has(id)) {
           this.pendingRequests.delete(id);
           reject(new Error(`Request timeout: ${method}`));
         }
-      }, 30000);
+      }, timeoutMs);
+      this.rpcTimeouts.set(id, timeoutId);
 
       this.ws!.send(JSON.stringify(message));
     });

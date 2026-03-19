@@ -219,6 +219,11 @@ export async function PATCH(
         return NextResponse.json({ error: 'Cannot mark done: validation/evidence requirements not met' }, { status: 400 });
       }
 
+      // 向前流转且本次未显式带 status_reason 时，清掉旧说明（含智能体写的 “Verification failed: …”）
+      if (!failingBackwards && validatedData.status_reason === undefined) {
+        updates.push('status_reason = NULL');
+      }
+
       updates.push('status = ?');
       values.push(nextStatus);
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { queryOne, queryAll, run } from '@/lib/db';
 import { getOpenClawClient } from '@/lib/openclaw/client';
+import { sendChatSendWithRetry } from '@/lib/openclaw-dispatch-send';
 import { broadcast } from '@/lib/events';
 import { getProjectsPath, getMissionControlUrl } from '@/lib/config';
 import { getRelevantKnowledge, formatKnowledgeForDispatch } from '@/lib/learner';
@@ -228,12 +229,43 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       // Knowledge injection is best-effort
     }
 
+    // Subtasks: MC_SUBTASK_META 在创建时写入 stage_status，之后不会随 verification_v2 等更新。
+    // 若用 meta 的 stage_status 计算「下一阶段」，会永远指向 verification→verification_v2，卡在重复验证/重复派发。
+    // 因此：工作流锚点优先用行上的 task.status（且在模板中存在时）；仅当行状态对不上模板时再回退到 meta（兼容 builder/test 短暂漂移）。
+    let instructionRole: string | undefined;
+    let metaStageStatus: string | undefined;
+    const subMetaMatch = (task.description || '').match(/MC_SUBTASK_META=(\{[\s\S]*\})/);
+    if (subMetaMatch) {
+      try {
+        const meta = JSON.parse(subMetaMatch[1]) as { stage_status?: string; stage_role?: string };
+        if (meta.stage_status && typeof meta.stage_status === 'string') {
+          metaStageStatus = meta.stage_status;
+        }
+        if (meta.stage_role && typeof meta.stage_role === 'string') {
+          instructionRole = meta.stage_role;
+        }
+      } catch {
+        // ignore malformed meta
+      }
+    }
+
+    const statusLineForPrompt =
+      metaStageStatus && metaStageStatus !== task.status
+        ? `**Current task status:** ${task.status} _(子任务创建时阶段: ${metaStageStatus})_`
+        : `**Current task status:** ${task.status}`;
+
     // Determine role-specific instructions based on workflow template
     const workflow = getTaskWorkflow(id);
     let currentStage: WorkflowStage | undefined;
     let nextStage: WorkflowStage | undefined;
     if (workflow) {
-      let stageIndex = workflow.stages.findIndex(s => s.status === task.status);
+      let workflowAnchorStatus: string = task.status;
+      const rowMapsToWorkflow = workflow.stages.some(s => s.status === task.status);
+      if (!rowMapsToWorkflow && metaStageStatus) {
+        workflowAnchorStatus = metaStageStatus;
+      }
+
+      let stageIndex = workflow.stages.findIndex(s => s.status === workflowAnchorStatus);
       // 'assigned' isn't a workflow stage — resolve to the 'build' stage (in_progress)
       if (stageIndex < 0 && (task.status === 'assigned' || task.status === 'inbox')) {
         stageIndex = workflow.stages.findIndex(s => s.role === 'builder');
@@ -244,9 +276,15 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       }
     }
 
-    const isBuilder = !currentStage || currentStage.role === 'builder' || task.status === 'assigned';
-    const isTester = currentStage?.role === 'tester';
-    const isVerifier = currentStage?.role === 'verifier' || currentStage?.role === 'reviewer';
+    const isBuilder =
+      instructionRole === 'builder' ||
+      (!instructionRole && (!currentStage || currentStage.role === 'builder' || task.status === 'assigned'));
+    const isTester =
+      instructionRole === 'tester' || (!instructionRole && currentStage?.role === 'tester');
+    const isVerifier =
+      instructionRole === 'verifier' ||
+      instructionRole === 'reviewer' ||
+      (!instructionRole && (currentStage?.role === 'verifier' || currentStage?.role === 'reviewer'));
     const nextStatus = nextStage?.status || 'review';
     const failEndpoint = `POST ${missionControlUrl}/api/tasks/${task.id}/fail`;
 
@@ -265,6 +303,8 @@ When complete, reply with:
     } else if (isTester) {
       completionInstructions = `**YOUR ROLE: TESTER** — Test the deliverables for this task.
 
+${statusLineForPrompt}
+
 Review the output directory for deliverables and run any applicable tests.
 
 **If tests PASS:**
@@ -279,10 +319,16 @@ Review the output directory for deliverables and run any applicable tests.
 
 Reply with: \`TEST_PASS: [summary]\` or \`TEST_FAIL: [what failed]\``;
     } else if (isVerifier) {
+      const doneEvidenceNote =
+        nextStatus === 'done'
+          ? `\n**Before PATCH to \`done\`:** you must already have at least one **deliverable** and one qualifying **activity** on this task (evidence gate), or the API will reject. Add deliverable via POST .../deliverables if needed.\n`
+          : '';
       completionInstructions = `**YOUR ROLE: VERIFIER** — Verify that all work meets quality standards.
 
-Review deliverables, test results, and task requirements.
+${statusLineForPrompt}
 
+Review deliverables, test results, and task requirements.
+${doneEvidenceNote}
 **If verification PASSES:**
 1. Log activity: POST ${missionControlUrl}/api/tasks/${task.id}/activities
    Body: {"activity_type": "completed", "message": "Verification passed: [summary]"}
@@ -337,10 +383,10 @@ If you need help or clarification, ask the orchestrator.`;
       // Format: {prefix}{openclaw_session_id} where prefix defaults to 'agent:main:'
       const prefix = agent.session_key_prefix || 'agent:main:';
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
-      await client.call('chat.send', {
+      await sendChatSendWithRetry(client, {
         sessionKey,
         message: taskMessage,
-        idempotencyKey: `dispatch-${task.id}-${Date.now()}`
+        idempotencyKey: `dispatch-${task.id}-${Date.now()}`,
       });
 
       // Only move to in_progress for builder dispatch (task is in 'assigned' status)

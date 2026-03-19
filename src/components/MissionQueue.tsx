@@ -1,6 +1,6 @@
 'use client';
 
-import {useEffect, useState} from 'react';
+import {useEffect, useMemo, useState} from 'react';
 import {Plus, ChevronRight, GripVertical, ArrowRightLeft} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
@@ -31,6 +31,8 @@ const COLUMNS: {id: TaskStatus; labelKey: string; color: string}[] = [
 export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true}: MissionQueueProps) {
   const {tasks, updateTaskStatus, addEvent} = useMissionControl();
   const t = useTranslations('missionQueue');
+
+  const [expandedParents, setExpandedParents] = useState<Record<string, boolean>>({});
 
   const [compactEmptyColumns, setCompactEmptyColumns] = useState(true);
   useEffect(() => {
@@ -64,11 +66,77 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
     return () => clearTimeout(timer);
   }, [statusBlockedModal]);
 
-  // 按最近更新时间（若无则按创建时间）降序排序任务，
-  // 确保最近更新或新建的任务显示在列顶部 / Sort tasks by most recent updated_at (fallback to created_at)
-  const getTasksByStatus = (status: TaskStatus) =>
+  const tasksByParent = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const task of tasks) {
+      const parentId = (task as Task & { parent_task_id?: string | null }).parent_task_id;
+      if (!parentId) continue;
+      const arr = map.get(parentId) || [];
+      arr.push(task);
+      map.set(parentId, arr);
+    }
+    for (const [k, arr] of map.entries()) {
+      arr.sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at).getTime();
+        const bTime = new Date(b.updated_at || b.created_at).getTime();
+        return bTime - aTime;
+      });
+      map.set(k, arr);
+    }
+    return map;
+  }, [tasks]);
+
+  // 按最近更新时间（若无则按创建时间）降序排序任务
+  const sortByRecent = (list: Task[]) =>
+    list
+      .slice()
+      .sort((a, b) => {
+        const aTime = new Date(a.updated_at || a.created_at).getTime();
+        const bTime = new Date(b.updated_at || b.created_at).getTime();
+        return bTime - aTime;
+      });
+
+  // Column query:
+  // - For DONE: show only parent tasks; subtasks are folded under parent.
+  // - For other statuses: show tasks as-is (including subtasks), like before.
+  const getColumnTasks = (status: TaskStatus) => {
+    const isVerificationColumn = status === 'verification';
+
+    if (status === 'done') {
+      const parents = tasks.filter((task) => {
+        const parentId = (task as Task & { parent_task_id?: string | null }).parent_task_id;
+        if (parentId) return false;
+        return task.status === 'done';
+      });
+      return sortByRecent(parents);
+    }
+
+    const all = tasks.filter((task) => {
+      // If a subtask is already done but its parent isn't, we fold it under the parent
+      // instead of showing it as a standalone card in any column.
+      const parentId = (task as Task & { parent_task_id?: string | null }).parent_task_id;
+      if (parentId && task.status === 'done') return false;
+
+      if (isVerificationColumn) {
+        return task.status === 'verification' || /^verification_v\d+$/.test(String(task.status));
+      }
+      return task.status === status;
+    });
+    return sortByRecent(all);
+  };
+
+  const getParentTasksByStatus = (status: TaskStatus) =>
     tasks
-      .filter((task) => task.status === status)
+      .filter((task) => {
+        const parentId = (task as Task & { parent_task_id?: string | null }).parent_task_id;
+        if (parentId) return false;
+
+        // UI unification: all verification rounds are displayed in the same column.
+        if (status === 'verification') {
+          return task.status === 'verification' || /^verification_v\d+$/.test(String(task.status));
+        }
+        return task.status === status;
+      })
       .slice()
       .sort((a, b) => {
         const aTime = new Date(a.updated_at || a.created_at).getTime();
@@ -102,7 +170,8 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
   };
 
   const isFailingBackwards = (from: TaskStatus, to: TaskStatus) =>
-    ['testing', 'review', 'verification'].includes(from) && ['in_progress', 'assigned'].includes(to);
+    (['testing', 'review', 'verification'].includes(from) || /^verification_v\d+$/.test(String(from))) &&
+    ['in_progress', 'assigned'].includes(to);
 
   const persistStatusChange = async (
     task: Task,
@@ -233,7 +302,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
     setDraggedTask(null);
   };
 
-  const mobileTasks = getTasksByStatus(mobileStatus);
+  const mobileTasks = getColumnTasks(mobileStatus);
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -256,7 +325,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
       {!mobileMode ? (
         <div className="mission-queue-scroll-x flex-1 flex gap-3 p-3 overflow-x-auto">
           {COLUMNS.map((column) => {
-            const columnTasks = getTasksByStatus(column.id);
+            const columnTasks = getColumnTasks(column.id);
             const hasTasks = columnTasks.length > 0;
             return (
               <div
@@ -274,18 +343,128 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                 </div>
 
                 <div className={`flex-1 overflow-y-auto p-2 ${hasTasks ? 'space-y-2' : ''}`}>
-                  {columnTasks.map((task) => (
-                    <TaskCard
-                      key={task.id}
-                      task={task}
-                      onDragStart={handleDragStart}
-                      onClick={() => setEditingTask(task)}
-                      onMoveStatus={() => setStatusMoveTask(task)}
-                      isDragging={draggedTask?.id === task.id}
-                      mobileMode={false}
-                      portraitMode={false}
-                    />
-                  ))}
+                  {columnTasks.map((task) => {
+                    const isDoneColumn = column.id === 'done';
+                    const isParent = !Boolean((task as Task & { parent_task_id?: string | null }).parent_task_id);
+
+                    if (!isDoneColumn) {
+                      // In non-done columns, fold DONE subtasks under their parent card.
+                      // Keep active subtasks as standalone cards.
+                      if (!isParent) {
+                        return (
+                          <TaskCard
+                            key={task.id}
+                            task={task}
+                            onDragStart={handleDragStart}
+                            onClick={() => setEditingTask(task)}
+                            onMoveStatus={() => setStatusMoveTask(task)}
+                            isDragging={draggedTask?.id === task.id}
+                            mobileMode={false}
+                            portraitMode={false}
+                          />
+                        );
+                      }
+
+                      const allChildren = tasksByParent.get(task.id) || [];
+                      const doneChildren = allChildren.filter(c => c.status === 'done');
+                      const expanded = Boolean(expandedParents[task.id]);
+                      return (
+                        <div key={task.id} className="space-y-1.5">
+                          <TaskCard
+                            task={task}
+                            onDragStart={handleDragStart}
+                            onClick={() => setEditingTask(task)}
+                            onMoveStatus={() => setStatusMoveTask(task)}
+                            isDragging={draggedTask?.id === task.id}
+                            mobileMode={false}
+                            portraitMode={false}
+                          />
+
+                          {doneChildren.length > 0 && (
+                            <div className="pl-2">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setExpandedParents(prev => ({ ...prev, [task.id]: !expanded }));
+                                }}
+                                className="text-[11px] text-mc-text-secondary/80 hover:text-mc-text-secondary underline underline-offset-2"
+                              >
+                                {expanded ? `收起已完成子任务 (${doneChildren.length})` : `展开已完成子任务 (${doneChildren.length})`}
+                              </button>
+
+                              {expanded && (
+                                <div className="mt-1.5 space-y-1.5">
+                                  {doneChildren.map((child) => (
+                                    <div key={child.id} className="pl-2 border-l border-mc-border/40">
+                                      <TaskCard
+                                        task={child}
+                                        onDragStart={handleDragStart}
+                                        onClick={() => setEditingTask(child)}
+                                        onMoveStatus={() => setStatusMoveTask(child)}
+                                        isDragging={draggedTask?.id === child.id}
+                                        mobileMode={false}
+                                        portraitMode={false}
+                                      />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    const children = tasksByParent.get(task.id) || [];
+                    const expanded = Boolean(expandedParents[task.id]);
+                    return (
+                      <div key={task.id} className="space-y-1.5">
+                        <TaskCard
+                          task={task}
+                          onDragStart={handleDragStart}
+                          onClick={() => setEditingTask(task)}
+                          onMoveStatus={() => setStatusMoveTask(task)}
+                          isDragging={draggedTask?.id === task.id}
+                          mobileMode={false}
+                          portraitMode={false}
+                        />
+
+                        {children.length > 0 && (
+                          <div className="pl-2">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setExpandedParents(prev => ({ ...prev, [task.id]: !expanded }));
+                              }}
+                              className="text-[11px] text-mc-text-secondary/80 hover:text-mc-text-secondary underline underline-offset-2"
+                            >
+                              {expanded ? `收起子任务 (${children.length})` : `展开子任务 (${children.length})`}
+                            </button>
+
+                            {expanded && (
+                              <div className="mt-1.5 space-y-1.5">
+                                {children.map((child) => (
+                                  <div key={child.id} className="pl-2 border-l border-mc-border/40">
+                                    <TaskCard
+                                      task={child}
+                                      onDragStart={handleDragStart}
+                                      onClick={() => setEditingTask(child)}
+                                      onMoveStatus={() => setStatusMoveTask(child)}
+                                      isDragging={draggedTask?.id === child.id}
+                                      mobileMode={false}
+                                      portraitMode={false}
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -295,7 +474,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
         <div className={`flex-1 overflow-y-auto ${isPortrait ? 'p-3 pb-[calc(1rem+env(safe-area-inset-bottom))]' : 'p-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))]'}`}>
           <div className={`flex gap-2 overflow-x-auto ${isPortrait ? 'pb-3' : 'pb-2'}`}>
             {COLUMNS.map((column) => {
-              const count = getTasksByStatus(column.id).length;
+              const count = getColumnTasks(column.id).length;
               const selected = mobileStatus === column.id;
               return (
                 <button
@@ -319,18 +498,126 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                 {t('noTasksInStatus') /* 当前状态无任务提示 / No tasks in status message */}
               </div>
             ) : (
-              mobileTasks.map((task) => (
-                <TaskCard
-                  key={task.id}
-                  task={task}
-                  onDragStart={handleDragStart}
-                  onClick={() => setEditingTask(task)}
-                  onMoveStatus={() => setStatusMoveTask(task)}
-                  isDragging={false}
-                  mobileMode
-                  portraitMode={isPortrait}
-                />
-              ))
+              mobileTasks.map((task) => {
+                const isDoneColumn = mobileStatus === 'done';
+                if (!isDoneColumn) {
+                  const isParent = !Boolean((task as Task & { parent_task_id?: string | null }).parent_task_id);
+                  if (!isParent) {
+                    return (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onDragStart={handleDragStart}
+                        onClick={() => setEditingTask(task)}
+                        onMoveStatus={() => setStatusMoveTask(task)}
+                        isDragging={false}
+                        mobileMode
+                        portraitMode={isPortrait}
+                      />
+                    );
+                  }
+
+                  const allChildren = tasksByParent.get(task.id) || [];
+                  const doneChildren = allChildren.filter(c => c.status === 'done');
+                  const expanded = Boolean(expandedParents[task.id]);
+
+                  return (
+                    <div key={task.id} className={isPortrait ? 'space-y-2' : 'space-y-1.5'}>
+                      <TaskCard
+                        task={task}
+                        onDragStart={handleDragStart}
+                        onClick={() => setEditingTask(task)}
+                        onMoveStatus={() => setStatusMoveTask(task)}
+                        isDragging={false}
+                        mobileMode
+                        portraitMode={isPortrait}
+                      />
+
+                      {doneChildren.length > 0 && (
+                        <div className="pl-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setExpandedParents(prev => ({ ...prev, [task.id]: !expanded }));
+                            }}
+                            className={`text-mc-text-secondary/80 underline underline-offset-2 ${isPortrait ? 'text-xs' : 'text-[11px]'}`}
+                          >
+                            {expanded ? `收起已完成子任务 (${doneChildren.length})` : `展开已完成子任务 (${doneChildren.length})`}
+                          </button>
+
+                          {expanded && (
+                            <div className={isPortrait ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
+                              {doneChildren.map((child) => (
+                                <div key={child.id} className="pl-2 border-l border-mc-border/40">
+                                  <TaskCard
+                                    task={child}
+                                    onDragStart={handleDragStart}
+                                    onClick={() => setEditingTask(child)}
+                                    onMoveStatus={() => setStatusMoveTask(child)}
+                                    isDragging={false}
+                                    mobileMode
+                                    portraitMode={isPortrait}
+                                  />
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                const children = tasksByParent.get(task.id) || [];
+                const expanded = Boolean(expandedParents[task.id]);
+                return (
+                  <div key={task.id} className={isPortrait ? 'space-y-2' : 'space-y-1.5'}>
+                    <TaskCard
+                      task={task}
+                      onDragStart={handleDragStart}
+                      onClick={() => setEditingTask(task)}
+                      onMoveStatus={() => setStatusMoveTask(task)}
+                      isDragging={false}
+                      mobileMode
+                      portraitMode={isPortrait}
+                    />
+
+                    {children.length > 0 && (
+                      <div className="pl-1">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setExpandedParents(prev => ({ ...prev, [task.id]: !expanded }));
+                          }}
+                          className={`text-mc-text-secondary/80 underline underline-offset-2 ${isPortrait ? 'text-xs' : 'text-[11px]'}`}
+                        >
+                          {expanded ? `收起子任务 (${children.length})` : `展开子任务 (${children.length})`}
+                        </button>
+
+                        {expanded && (
+                          <div className={isPortrait ? 'mt-2 space-y-2' : 'mt-1.5 space-y-1.5'}>
+                            {children.map((child) => (
+                              <div key={child.id} className="pl-2 border-l border-mc-border/40">
+                                <TaskCard
+                                  task={child}
+                                  onDragStart={handleDragStart}
+                                  onClick={() => setEditingTask(child)}
+                                  onMoveStatus={() => setStatusMoveTask(child)}
+                                  isDragging={false}
+                                  mobileMode
+                                  portraitMode={isPortrait}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
@@ -526,7 +813,7 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
           </div>
         )}
 
-        {['testing', 'verification'].includes(task.status) && dispatchError && (
+        {(task.status === 'testing' || task.status === 'verification' || /^verification_v\d+$/.test(String(task.status))) && dispatchError && (
           <div className={`flex items-start gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-red-500/10 rounded-md border border-red-500/30`}>
             <div className="w-2 h-2 bg-red-400 rounded-full mt-1 flex-shrink-0" />
             <span className="text-xs text-red-300">{dispatchError}</span>

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { queryOne, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
-import { handleStageTransition, handleStageFailure, getTaskWorkflow, drainQueue, populateTaskRolesFromAgents } from '@/lib/workflow-engine';
+import { handleStageTransition, handleStageFailure, getTaskWorkflow, drainQueue, populateTaskRolesFromAgents, maybeAdvanceParentFromSubtasks } from '@/lib/workflow-engine';
 import { hasStageEvidence, canUseBoardOverride, auditBoardOverride, taskCanBeDone, recordLearnerOnTransition } from '@/lib/task-governance';
 import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
 import { UpdateTaskSchema } from '@/lib/validation';
@@ -168,8 +168,11 @@ export async function PATCH(
       // Workflow status guard: prevent moving into statuses not defined by the task's workflow template.
       // This avoids tasks getting "stuck" in columns the workflow doesn't know how to handle.
       const workflow = getTaskWorkflow(id);
+      const isVerificationStage = (s: Task['status'] | undefined) =>
+        s === 'verification' || /^verification_v\d+$/.test(String(s));
+
       const workflowControlled: Array<Task['status']> = ['in_progress', 'testing', 'review', 'verification', 'done'];
-      if (workflow && workflowControlled.includes(nextStatus as any)) {
+      if (workflow && (workflowControlled.includes(nextStatus as any) || isVerificationStage(nextStatus))) {
         const allowed = Array.from(new Set(workflow.stages.map(s => s.status)));
         if (!allowed.includes(nextStatus as any)) {
           return NextResponse.json(
@@ -186,7 +189,10 @@ export async function PATCH(
       }
 
       // Hard evidence gate for forward-stage transitions and completion
-      const enteringQualityStage = ['testing', 'review', 'verification', 'done'].includes(nextStatus);
+      const enteringQualityStage =
+        ['testing', 'review', 'done'].includes(nextStatus) ||
+        nextStatus === 'verification' ||
+        /^verification_v\d+$/.test(String(nextStatus));
       if (enteringQualityStage && !boardOverrideAllowed && !hasStageEvidence(id)) {
         return NextResponse.json(
           { error: 'Evidence gate failed: stage transition requires at least one deliverable and one activity note' },
@@ -195,7 +201,9 @@ export async function PATCH(
       }
 
       // Failure transitions must include status_reason
-      const failingBackwards = ['testing', 'review', 'verification'].includes(existing.status) && ['in_progress', 'assigned'].includes(nextStatus);
+      const failingBackwards =
+        (['testing', 'review', 'verification'].includes(existing.status) || /^verification_v\d+$/.test(String(existing.status))) &&
+        ['in_progress', 'assigned'].includes(nextStatus);
       if (failingBackwards && !validatedData.status_reason) {
         return NextResponse.json(
           {
@@ -226,7 +234,11 @@ export async function PATCH(
       // When a task completes, reset the assigned agent to standby (if not working on other tasks)
       if (nextStatus === 'done' && existing.assigned_agent_id) {
         const otherActiveTasks = queryOne<{ cnt: number }>(
-          `SELECT COUNT(*) as cnt FROM tasks WHERE assigned_agent_id = ? AND id != ? AND status IN ('assigned', 'in_progress', 'testing', 'verification')`,
+            `SELECT COUNT(*) as cnt
+             FROM tasks
+             WHERE assigned_agent_id = ?
+               AND id != ?
+               AND (status IN ('assigned', 'in_progress', 'testing', 'verification') OR status LIKE 'verification_v%')`,
           [existing.assigned_agent_id, id]
         );
         if (!otherActiveTasks || otherActiveTasks.cnt === 0) {
@@ -263,7 +275,10 @@ export async function PATCH(
           // Auto-dispatch if already in assigned status or being assigned now
           if (existing.status === 'assigned' || nextStatus === 'assigned') {
             shouldDispatch = true;
-          } else if (['testing', 'review', 'verification'].includes(nextStatus || existing.status)) {
+          } else if (
+            ['testing', 'review', 'verification'].includes(nextStatus || existing.status) ||
+            /^verification_v\d+$/.test(String(nextStatus || existing.status))
+          ) {
             // Agent manually assigned to a task in a workflow stage — dispatch directly
             shouldDispatchWorkflowStage = true;
           }
@@ -353,7 +368,7 @@ export async function PATCH(
     if (
       nextStatus &&
       nextStatus !== existing.status &&
-      workflowStages.includes(nextStatus) &&
+      (workflowStages.includes(nextStatus) || /^verification_v\d+$/.test(String(nextStatus))) &&
       !shouldDispatch // Don't double-trigger if already handled above
     ) {
       const stageResult = await handleStageTransition(id, nextStatus, {
@@ -421,7 +436,7 @@ export async function PATCH(
         const activeTasks = queryOne<{ count: number }>(
           `SELECT COUNT(*) as count FROM tasks
            WHERE assigned_agent_id = ?
-             AND status IN ('assigned', 'in_progress', 'testing', 'verification')
+             AND (status IN ('assigned', 'in_progress', 'testing', 'verification') OR status LIKE 'verification_v%')
              AND id != ?`,
           [agentToCheck, id]
         );
@@ -430,7 +445,10 @@ export async function PATCH(
           validatedData.assigned_agent_id !== undefined
             ? validatedData.assigned_agent_id === agentToCheck
             : true
-        ) && ['assigned', 'in_progress', 'testing', 'verification'].includes(nextStatus);
+        ) && (
+          ['assigned', 'in_progress', 'testing', 'verification'].includes(nextStatus) ||
+          /^verification_v\d+$/.test(String(nextStatus))
+        );
 
         if (!currentTaskStillActive && (!activeTasks || activeTasks.count === 0)) {
           run(
@@ -452,6 +470,13 @@ export async function PATCH(
     if (nextStatus === 'done') {
       drainQueue(id, existing.workspace_id).catch(err =>
         console.error('[Workflow] drainQueue after done failed:', err)
+      );
+    }
+
+    // If this is a subtask completing, try to advance its parent (non-blocking)
+    if (nextStatus === 'done') {
+      maybeAdvanceParentFromSubtasks(id).catch(err =>
+        console.error('[Workflow] maybeAdvanceParentFromSubtasks failed:', err)
       );
     }
 
@@ -479,8 +504,8 @@ export async function DELETE(
     if (existing.assigned_agent_id) {
       const otherActive = queryOne<{ count: number }>(
         `SELECT COUNT(*) as count FROM tasks
-         WHERE assigned_agent_id = ?
-           AND status IN ('assigned', 'in_progress', 'testing', 'verification')
+           WHERE assigned_agent_id = ?
+             AND (status IN ('assigned', 'in_progress', 'testing', 'verification') OR status LIKE 'verification_v%')
            AND id != ?`,
         [existing.assigned_agent_id, id]
       );

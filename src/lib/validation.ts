@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
-// Task status and priority enums from types
-const TaskStatus = z.enum([
+// Task status validation
+// Verification rounds:
+// - First round: `verification`
+// - Subsequent rounds: `verification_v${n}` (n >= 2)
+const BaseTaskStatus = z.enum([
   'pending_dispatch',
   'planning',
   'inbox',
@@ -10,8 +13,12 @@ const TaskStatus = z.enum([
   'testing',
   'review',
   'verification',
-  'done'
+  'done',
 ]);
+
+const VerificationVStatus = z.string().regex(/^verification_v([2-9]\d*)$/);
+
+const TaskStatus = z.union([BaseTaskStatus, VerificationVStatus]);
 
 const TaskPriority = z.enum(['low', 'normal', 'high', 'urgent']);
 

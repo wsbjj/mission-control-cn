@@ -106,7 +106,7 @@ export function taskCanBeDone(taskId: string): boolean {
 }
 
 export function isActiveStatus(status: string): boolean {
-  return ACTIVE_STATUSES.includes(status);
+  return ACTIVE_STATUSES.includes(status) || /^verification_v\d+$/.test(status);
 }
 
 export function pickDynamicAgent(taskId: string, stageRole?: string | null): { id: string; name: string } | null {

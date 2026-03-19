@@ -45,14 +45,17 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     let assignedAgentId = task.assigned_agent_id;
     if (!assignedAgentId) {
-      const statusRoleMap: Record<string, string> = {
-        assigned: 'builder',
-        in_progress: 'builder',
-        testing: 'tester',
-        review: 'reviewer',
-        verification: 'reviewer',
-      };
-      const dynamicAgent = pickDynamicAgent(id, statusRoleMap[task.status] || 'builder');
+      const status = task.status;
+      const stageRole =
+        status === 'testing'
+          ? 'tester'
+          : status === 'review'
+            ? 'reviewer'
+            : status === 'verification' || /^verification_v\d+$/.test(String(status))
+              ? 'reviewer'
+              : 'builder';
+
+      const dynamicAgent = pickDynamicAgent(id, stageRole);
       if (dynamicAgent) {
         assignedAgentId = dynamicAgent.id;
         run('UPDATE tasks SET assigned_agent_id = ?, updated_at = datetime(\'now\') WHERE id = ?', [assignedAgentId, id]);

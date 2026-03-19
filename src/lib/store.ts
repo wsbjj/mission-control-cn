@@ -9,7 +9,11 @@ const ACTIVE_TASK_STATUSES = new Set<TaskStatus>(['assigned', 'in_progress', 'te
 function reconcileAgentStatuses(agents: Agent[], tasks: Task[]): Agent[] {
   const activeAgentIds = new Set(
     tasks
-      .filter((t) => t.assigned_agent_id && ACTIVE_TASK_STATUSES.has(t.status as TaskStatus))
+      .filter((t) => {
+        if (!t.assigned_agent_id) return false;
+        const s = String(t.status);
+        return ACTIVE_TASK_STATUSES.has(t.status as TaskStatus) || s === 'verification' || /^verification_v\d+$/.test(s);
+      })
       .map((t) => t.assigned_agent_id as string)
   );
 

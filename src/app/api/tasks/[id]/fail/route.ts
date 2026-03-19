@@ -33,11 +33,11 @@ export async function POST(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Only allow failure from testing, review, or verification stages
-    const failableStatuses = ['testing', 'review', 'verification'];
-    if (!failableStatuses.includes(task.status)) {
+    // Only allow failure from testing, review, or verification stages (verification_vN included)
+    const isVerificationStage = task.status === 'verification' || /^verification_v\d+$/.test(String(task.status));
+    if (!['testing', 'review'].includes(task.status) && !isVerificationStage) {
       return NextResponse.json(
-        { error: `Cannot fail from status: ${task.status}. Must be in ${failableStatuses.join(', ')}` },
+        { error: `Cannot fail from status: ${task.status}. Must be in testing/review/verification` },
         { status: 400 }
       );
     }

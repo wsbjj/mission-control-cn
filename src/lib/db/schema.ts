@@ -47,7 +47,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
-  status TEXT DEFAULT 'inbox' CHECK (status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'testing', 'review', 'verification', 'done')),
+  status TEXT DEFAULT 'inbox' CHECK (
+    status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'testing', 'review', 'verification', 'done')
+    OR status LIKE 'verification_v%'
+  ),
   priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
   assigned_agent_id TEXT REFERENCES agents(id),
   created_by_agent_id TEXT REFERENCES agents(id),
@@ -55,6 +58,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   business_id TEXT DEFAULT 'default',
   due_date TEXT,
   workflow_template_id TEXT REFERENCES workflow_templates(id),
+  parent_task_id TEXT REFERENCES tasks(id),
   planning_session_key TEXT,
   planning_messages TEXT,
   planning_complete INTEGER DEFAULT 0,
@@ -65,6 +69,16 @@ CREATE TABLE IF NOT EXISTS tasks (
   images TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Task role agent assignments (role -> multiple agents per task)
+CREATE TABLE IF NOT EXISTS task_role_agents (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  role TEXT NOT NULL,
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(task_id, role, agent_id)
 );
 
 -- Planning questions table
@@ -226,6 +240,7 @@ CREATE INDEX IF NOT EXISTS idx_openclaw_sessions_task ON openclaw_sessions(task_
 CREATE INDEX IF NOT EXISTS idx_planning_questions_task ON planning_questions(task_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_workflow_templates_workspace ON workflow_templates(workspace_id);
 CREATE INDEX IF NOT EXISTS idx_task_roles_task ON task_roles(task_id);
+CREATE INDEX IF NOT EXISTS idx_task_role_agents_task_role ON task_role_agents(task_id, role);
 CREATE INDEX IF NOT EXISTS idx_knowledge_entries_workspace ON knowledge_entries(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_entries_task ON knowledge_entries(task_id);
 `;

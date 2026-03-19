@@ -13,7 +13,7 @@ interface TeamTabProps {
 
 interface RoleAssignment {
   role: string;
-  agent_id: string;
+  agent_ids: string[];
   agent_name?: string;
   agent_emoji?: string;
 }
@@ -105,12 +105,25 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
 
         if (rolesRes.ok) {
           const data = await rolesRes.json();
-          setRoles(data.map((r: RoleAssignment & { agent_name: string; agent_emoji: string }) => ({
-            role: normalizeRoleCanonical(r.role),
-            agent_id: r.agent_id,
-            agent_name: r.agent_name,
-            agent_emoji: r.agent_emoji,
-          })));
+          // New API shape: [{ role, agent_ids, agents }]
+          // Legacy shape (best-effort): [{ role, agent_id, agent_name, agent_emoji }]
+          const normalized: RoleAssignment[] = [];
+          for (const entry of (Array.isArray(data) ? data : [])) {
+            const role = normalizeRoleCanonical(String(entry.role || ''));
+            if (!role) continue;
+
+            const agentIds: string[] = Array.isArray(entry.agent_ids)
+              ? entry.agent_ids.map((x: any) => String(x)).filter(Boolean)
+              : entry.agent_id
+                ? [String(entry.agent_id)]
+                : [];
+
+            normalized.push({
+              role,
+              agent_ids: agentIds,
+            });
+          }
+          setRoles(normalized);
         }
 
         if (workflowsRes.ok) {
@@ -157,7 +170,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
       const existing = new Set(prev.map(r => normalizeRoleCanonical(r.role)));
       const next = [...prev];
       for (const role of unique) {
-        if (!existing.has(role)) next.push({ role, agent_id: '' });
+        if (!existing.has(role)) next.push({ role, agent_ids: [] });
       }
       return next;
     });
@@ -243,12 +256,33 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
     setRoles(prev => {
       const existing = prev.find(r => normalizeRoleCanonical(r.role) === normalizedRole);
       if (existing) {
-        return prev.map(r => normalizeRoleCanonical(r.role) === normalizedRole ? { ...r, role: normalizedRole, agent_id: agentId } : r);
+        const nextIds = agentId
+          ? Array.from(new Set([...existing.agent_ids, agentId]))
+          : existing.agent_ids;
+        return prev.map(r => normalizeRoleCanonical(r.role) === normalizedRole ? { ...r, role: normalizedRole, agent_ids: nextIds } : r);
       }
-      return [...prev, { role: normalizedRole, agent_id: agentId }];
+      return [...prev, { role: normalizedRole, agent_ids: agentId ? [agentId] : [] }];
     });
     setSaved(false);
   };
+
+  const setRoleAgentIds = (role: string, agentIds: string[]) => {
+    const normalizedRole = normalizeRoleCanonical(role);
+    const normalizedIds = Array.from(new Set(agentIds.map(String).map(s => s.trim()).filter(Boolean)));
+    setRoles(prev => {
+      const existing = prev.find(r => normalizeRoleCanonical(r.role) === normalizedRole);
+      if (existing) {
+        return prev.map(r => normalizeRoleCanonical(r.role) === normalizedRole ? { ...r, role: normalizedRole, agent_ids: normalizedIds } : r);
+      }
+      return [...prev, { role: normalizedRole, agent_ids: normalizedIds }];
+    });
+    setSaved(false);
+  };
+
+  const verificationUsageCount = customStages.filter(s => {
+    const st = String(s.status || '');
+    return s.status === 'verification' || /^verification_v\d+$/.test(st);
+  }).length;
 
   const taskStatuses: TaskStatus[] = [
     'inbox',
@@ -257,22 +291,44 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
     'testing',
     'review',
     'verification',
+    // Follow your "auto generate next round" idea:
+    // if verification (or any verification_vN) is used N times in this template,
+    // show verification_v2..verification_v(N+1) as selectable options.
+    ...Array.from({ length: verificationUsageCount }, (_, i) => `verification_v${i + 2}` as TaskStatus),
     'done',
   ];
 
   const translateStatus = (status: TaskStatus) => {
-    const map: Record<TaskStatus, string> = {
-      inbox: t('teamStatusInbox'),
-      assigned: t('teamStatusAssigned'),
-      in_progress: t('teamStatusInProgress'),
-      testing: t('teamStatusTesting'),
-      review: t('teamStatusReview'),
-      verification: t('teamStatusVerification'),
-      done: t('teamStatusDone'),
-      planning: 'planning',
-      pending_dispatch: 'pending_dispatch',
-    };
-    return map[status] || status;
+    if (status === 'verification') return t('teamStatusVerification');
+    if (status === 'done') return t('teamStatusDone');
+    if (status === 'inbox') return t('teamStatusInbox');
+    if (status === 'assigned') return t('teamStatusAssigned');
+    if (status === 'in_progress') return t('teamStatusInProgress');
+    if (status === 'testing') return t('teamStatusTesting');
+    if (status === 'review') return t('teamStatusReview');
+    if (status === 'planning') return 'planning';
+    if (status === 'pending_dispatch') return 'pending_dispatch';
+
+    const m = /^verification_v(\d+)$/.exec(String(status));
+    if (m) {
+      const round = Number(m[1]);
+      // Keep existing i18n for v2; fallback to a generic label for v3+.
+      if (round === 2) return t('teamStatusVerificationV2');
+      return `验证中(${round})`;
+    }
+
+    // If we reach here, status is one of the supported non-verification values.
+    if (status === 'verification') return t('teamStatusVerification');
+    if (status === 'done') return t('teamStatusDone');
+    if (status === 'inbox') return t('teamStatusInbox');
+    if (status === 'assigned') return t('teamStatusAssigned');
+    if (status === 'in_progress') return t('teamStatusInProgress');
+    if (status === 'testing') return t('teamStatusTesting');
+    if (status === 'review') return t('teamStatusReview');
+    if (status === 'planning') return 'planning';
+    if (status === 'pending_dispatch') return 'pending_dispatch';
+
+    return String(status);
   };
 
   const saveCustomTemplate = async () => {
@@ -301,7 +357,22 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
       return;
     }
 
-    const stages = customStages.map(s => ({
+    // Normalize verification rounds (auto-generate v2/v3/...):
+    // - 1st verification* occurrence => verification
+    // - 2nd => verification_v2
+    // - 3rd => verification_v3 ...
+    let verificationRound = 0;
+    const normalizedCustomStages = customStages.map(s => {
+      const isVerificationStage =
+        s.status === 'verification' || /^verification_v\d+$/.test(String(s.status));
+      if (!isVerificationStage) return s;
+
+      verificationRound += 1;
+      if (verificationRound === 1) return { ...s, status: 'verification' as TaskStatus };
+      return { ...s, status: `verification_v${verificationRound}` as TaskStatus };
+    });
+
+    const stages = normalizedCustomStages.map(s => ({
       ...s,
       label: (s.label || '').trim() || t('teamStageLabelFallback'),
       role: s.role === null ? null : normalizeRoleCanonical(String(s.role)),
@@ -407,12 +478,12 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
         ? new Set(uniqueRoles)
         : null;
       const validRoles = roles
-        .filter(r => r.role && r.agent_id)
+        .filter(r => r.role && Array.isArray(r.agent_ids) && r.agent_ids.length > 0)
         .filter(r => !allowed || allowed.has(normalizeRole(r.role)));
       const res = await fetch(`/api/tasks/${taskId}/roles`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roles: validRoles }),
+        body: JSON.stringify({ roles: validRoles.map(r => ({ role: r.role, agent_ids: r.agent_ids })) }),
       });
 
       if (res.ok) {
@@ -431,7 +502,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
 
   const addCustomRole = () => {
     if (addableRoles.length === 0) return;
-    setRoles(prev => [...prev, { role: addableRoles[0], agent_id: '' }]);
+    setRoles(prev => [...prev, { role: addableRoles[0], agent_ids: [] }]);
   };
 
   if (loading) {
@@ -443,7 +514,7 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
   }
 
   const missingRoles = uniqueRoles.filter(role =>
-    !roles.find(r => normalizeRole(r.role) === role && r.agent_id)
+    !roles.find(r => normalizeRole(r.role) === role && r.agent_ids && r.agent_ids.length > 0)
   );
 
   const stageLabelKey: Record<string, string> = {
@@ -823,18 +894,40 @@ export function TeamTab({ taskId, workspaceId }: TeamTabProps) {
                 <div className="w-24 text-xs font-medium text-mc-text-secondary flex-shrink-0">
                   {translateRoleName(role)}
                 </div>
-                <select
-                  value={assignment?.agent_id || ''}
-                  onChange={(e) => handleRoleAgentChange(role, e.target.value)}
-                  className="flex-1 min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-                >
-                  <option value="">{t('teamUnassigned')}</option>
-                  {agents.map(agent => (
-                    <option key={agent.id} value={agent.id}>
-                      {agent.avatar_emoji} {agent.name} — {translateRoleName(agent.role || '')}
-                    </option>
-                  ))}
-                </select>
+                <div className="flex-1 min-w-0">
+                  <select
+                    multiple
+                    value={assignment?.agent_ids || []}
+                    onChange={(e) => {
+                      const values = Array.from(e.target.selectedOptions).map(o => o.value);
+                      setRoleAgentIds(role, values);
+                    }}
+                    className="w-full min-h-24 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
+                  >
+                    {agents.map(agent => (
+                      <option key={agent.id} value={agent.id}>
+                        {agent.avatar_emoji} {agent.name} — {translateRoleName(agent.role || '')}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {(assignment?.agent_ids || []).map((id) => {
+                      const a = agents.find(x => x.id === id);
+                      if (!a) return null;
+                      return (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setRoleAgentIds(role, (assignment?.agent_ids || []).filter(x => x !== id))}
+                          className="px-2 py-0.5 rounded-full text-[11px] bg-mc-bg-tertiary border border-mc-border text-mc-text-secondary hover:text-mc-text"
+                          title={t('teamRemoveAgentFromRole' as any) || 'Remove'}
+                        >
+                          {a.avatar_emoji} {a.name} ×
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             );
           })}

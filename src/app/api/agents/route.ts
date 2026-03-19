@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
       `SELECT assigned_agent_id, COUNT(*) as c
        FROM tasks
        WHERE assigned_agent_id IS NOT NULL
-         AND status IN ('assigned', 'in_progress', 'testing', 'verification')
+         AND (status IN ('assigned', 'in_progress', 'testing', 'verification') OR status LIKE 'verification_v%')
        GROUP BY assigned_agent_id`
     );
     const activeMap = new Map(activeRows.map(r => [r.assigned_agent_id, r.c]));

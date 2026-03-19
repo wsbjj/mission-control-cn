@@ -19,6 +19,8 @@ interface StageTransitionResult {
   error?: string;
 }
 
+type RoleAgentsRow = { agent_id: string; name: string };
+
 /**
  * Get the workflow template for a task (via task.workflow_template_id or workspace default)
  */
@@ -53,9 +55,25 @@ export function getTaskWorkflow(taskId: string): WorkflowTemplate | null {
 }
 
 function parseTemplate(row: { id: string; workspace_id: string; name: string; description: string; stages: string; fail_targets: string; is_default: number; created_at: string; updated_at: string }): WorkflowTemplate {
+  const parsedStages = JSON.parse(row.stages || '[]') as WorkflowStage[];
+
+  // Normalize multiple verification rounds so second one becomes verification_v2.
+  // This prevents the same `status` (verification) from being treated as multiple distinct stages.
+  let verificationRound = 0;
+  const normalizedStages = parsedStages.map((s) => {
+    const isVerification =
+      s.status === 'verification' || /^verification_v\d+$/.test(String(s.status));
+    if (!isVerification) return s;
+
+    verificationRound += 1;
+    if (verificationRound === 1) return { ...s, status: 'verification' };
+    // verificationRound=2 => verification_v2, verificationRound=3 => verification_v3, ...
+    return { ...s, status: `verification_v${verificationRound}` as any as TaskStatus };
+  });
+
   return {
     ...row,
-    stages: JSON.parse(row.stages || '[]') as WorkflowStage[],
+    stages: normalizedStages,
     fail_targets: JSON.parse(row.fail_targets || '{}') as Record<string, string>,
     is_default: Boolean(row.is_default),
   };
@@ -74,10 +92,28 @@ export function getTaskRoles(taskId: string): TaskRole[] {
   );
 }
 
+function getAgentsForRole(taskId: string, role: string): Array<{ id: string; name: string }> {
+  const normalized = role.trim().toLowerCase();
+  if (!normalized) return [];
+  const rows = queryAll<RoleAgentsRow>(
+    `SELECT tra.agent_id, a.name
+     FROM task_role_agents tra
+     JOIN agents a ON tra.agent_id = a.id
+     WHERE tra.task_id = ? AND lower(trim(tra.role)) = ?
+     ORDER BY tra.created_at ASC`,
+    [taskId, normalized]
+  );
+  return rows.map(r => ({ id: r.agent_id, name: r.name }));
+}
+
 /**
  * Find the agent assigned to a specific role on a task
  */
 function getAgentForRole(taskId: string, role: string): { id: string; name: string } | null {
+  // Prefer multi-agent table (take first as canonical single assignee)
+  const agents = getAgentsForRole(taskId, role);
+  if (agents.length > 0) return agents[0];
+
   const result = queryOne<{ agent_id: string; agent_name: string }>(
     `SELECT tr.agent_id, a.name as agent_name
      FROM task_roles tr
@@ -86,6 +122,111 @@ function getAgentForRole(taskId: string, role: string): { id: string; name: stri
     [taskId, role]
   );
   return result ? { id: result.agent_id, name: result.agent_name } : null;
+}
+
+function hasActiveSubtasks(parentTaskId: string, stageStatus: string): boolean {
+  const row = queryOne<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt
+     FROM tasks
+     WHERE parent_task_id = ?
+       AND (status IN ('assigned','in_progress','testing','review','verification') OR status LIKE 'verification_v%')
+       AND description LIKE ?`,
+    [parentTaskId, `%MC_SUBTASK_META=%"stage_status":"${stageStatus}"%`]
+  );
+  return Number(row?.cnt || 0) > 0;
+}
+
+/** True if this parent has ever spawned subtasks for this stage (including done). Prevents same stage from spawning twice. */
+function hasSpawnedSubtasksForStage(parentTaskId: string, stageStatus: string): boolean {
+  const row = queryOne<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt
+     FROM tasks
+     WHERE parent_task_id = ?
+       AND description LIKE ?`,
+    [parentTaskId, `%MC_SUBTASK_META=%"stage_status":"${stageStatus}"%`]
+  );
+  return Number(row?.cnt || 0) > 0;
+}
+
+async function dispatchTaskBestEffort(taskId: string): Promise<void> {
+  const missionControlUrl = getMissionControlUrl();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (process.env.MC_API_TOKEN) headers['Authorization'] = `Bearer ${process.env.MC_API_TOKEN}`;
+  try {
+    await fetch(`${missionControlUrl}/api/tasks/${taskId}/dispatch`, { method: 'POST', headers });
+  } catch (err) {
+    console.warn('[Workflow] subtask dispatch failed:', err);
+  }
+}
+
+async function spawnParallelSubtasks(
+  parent: Task,
+  stage: WorkflowStage,
+  agents: Array<{ id: string; name: string }>
+): Promise<void> {
+  const now = new Date().toISOString();
+  const stageStatus = stage.status;
+  const stageRole = stage.role || '';
+
+  // Prevent same stage from spawning twice: if we ever spawned subtasks for this (parent, stage), do not spawn again.
+  if (hasSpawnedSubtasksForStage(parent.id, stageStatus)) {
+    return;
+  }
+
+  run(
+    `INSERT INTO task_activities (id, task_id, agent_id, activity_type, message, created_at)
+     VALUES (?, ?, NULL, 'status_changed', ?, ?)`,
+    [crypto.randomUUID(), parent.id, `Spawned ${agents.length} parallel subtasks for stage: ${stage.label}`, now]
+  );
+
+  for (const agent of agents) {
+    const id = crypto.randomUUID();
+    const meta = JSON.stringify({
+      parent_task_id: parent.id,
+      stage_status: stageStatus,
+      stage_role: stageRole,
+      stage_label: stage.label,
+      agent_id: agent.id,
+      agent_name: agent.name,
+    });
+    const description = [
+      parent.description || '',
+      '',
+      '---',
+      `MC_SUBTASK_META=${meta}`,
+    ].filter(Boolean).join('\n');
+
+    run(
+      `INSERT INTO tasks (
+        id, title, description, status, priority,
+        assigned_agent_id, created_by_agent_id, workspace_id, business_id,
+        due_date, workflow_template_id, parent_task_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        id,
+        `[子任务] ${parent.title} — ${stage.label} — ${agent.name}`,
+        description,
+        stageStatus,
+        parent.priority,
+        agent.id,
+        (parent as any).created_by_agent_id || null,
+        parent.workspace_id,
+        parent.business_id,
+        (parent as any).due_date || null,
+        (parent as any).workflow_template_id || null,
+        parent.id,
+        now,
+        now,
+      ]
+    );
+
+    // Broadcast creation so the board updates immediately
+    const inserted = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [id]);
+    if (inserted) broadcast({ type: 'task_created', payload: inserted });
+
+    // Dispatch best-effort (assigned -> in_progress happens inside dispatch route)
+    await dispatchTaskBestEffort(id);
+  }
 }
 
 /**
@@ -134,6 +275,16 @@ export async function handleStageTransition(
     return { success: true, handedOff: false };
   }
 
+  // Parallel stage: if this role has 2+ agents assigned, spawn subtasks and do NOT handoff the parent.
+  // Parent stays in the stage status; child tasks are dispatched and tracked separately.
+  const multiAgents = getAgentsForRole(taskId, targetStage.role).filter(Boolean);
+  if (multiAgents.length >= 2) {
+    const parent = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [taskId]);
+    if (!parent) return { success: false, handedOff: false, error: 'Task not found' };
+    await spawnParallelSubtasks(parent, targetStage, multiAgents);
+    return { success: true, handedOff: false };
+  }
+
   // Find the agent assigned to this role (task_roles first, then fall back to assigned_agent_id)
   let roleAgent = getAgentForRole(taskId, targetStage.role);
   if (!roleAgent) {
@@ -175,7 +326,7 @@ export async function handleStageTransition(
   );
   if (previousTask?.assigned_agent_id && previousTask.assigned_agent_id !== roleAgent.id) {
     const otherActiveTasks = queryOne<{ cnt: number }>(
-      `SELECT COUNT(*) as cnt FROM tasks WHERE assigned_agent_id = ? AND id != ? AND status IN ('assigned', 'in_progress', 'testing', 'verification')`,
+      `SELECT COUNT(*) as cnt FROM tasks WHERE assigned_agent_id = ? AND id != ? AND (status IN ('assigned', 'in_progress', 'testing', 'verification') OR status LIKE 'verification_v%')`,
       [previousTask.assigned_agent_id, taskId]
     );
     if (!otherActiveTasks || otherActiveTasks.cnt === 0) {
@@ -243,6 +394,54 @@ export async function handleStageTransition(
   }
 }
 
+export async function maybeAdvanceParentFromSubtasks(subtaskId: string): Promise<void> {
+  const sub = queryOne<Task & { parent_task_id?: string; description?: string }>(
+    'SELECT id, parent_task_id, description, status FROM tasks WHERE id = ?',
+    [subtaskId]
+  );
+  if (!sub?.parent_task_id) return;
+  if (sub.status !== 'done') return;
+
+  const metaMatch = (sub.description || '').match(/MC_SUBTASK_META=(\{[\s\S]*\})/);
+  let stageStatus: string | null = null;
+  if (metaMatch) {
+    try {
+      const parsed = JSON.parse(metaMatch[1]);
+      stageStatus = parsed.stage_status || null;
+    } catch {}
+  }
+  if (!stageStatus) return;
+
+  const parent = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [sub.parent_task_id]);
+  if (!parent) return;
+  // Only advance if parent is still in the stage we spawned for (avoid racing with manual moves)
+  if (parent.status !== stageStatus) return;
+
+  const remaining = queryOne<{ cnt: number }>(
+    `SELECT COUNT(*) as cnt
+     FROM tasks
+     WHERE parent_task_id = ?
+       AND status != 'done'
+       AND description LIKE ?`,
+    [parent.id, `%MC_SUBTASK_META=%"stage_status":"${stageStatus}"%`]
+  );
+  if (Number(remaining?.cnt || 0) > 0) return;
+
+  const workflow = getTaskWorkflow(parent.id);
+  if (!workflow) return;
+  const stageIndex = workflow.stages.findIndex(s => s.status === stageStatus);
+  if (stageIndex < 0) return;
+  const nextStage = workflow.stages[stageIndex + 1];
+  if (!nextStage) return;
+
+  const now = new Date().toISOString();
+  run('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?', [nextStage.status, now, parent.id]);
+  const refreshed = queryOne<Task>('SELECT * FROM tasks WHERE id = ?', [parent.id]);
+  if (refreshed) broadcast({ type: 'task_updated', payload: refreshed });
+
+  await handleStageTransition(parent.id, nextStage.status, { previousStatus: stageStatus });
+}
+
 /**
  * Handle a stage failure — move task back to the fail target stage.
  * Called when testing/review/verification fails.
@@ -258,7 +457,11 @@ export async function handleStageFailure(
   }
 
   const targetStatus = workflow.fail_targets[currentStatus];
-  if (!targetStatus) {
+  const resolvedTargetStatus =
+    targetStatus ||
+    (String(currentStatus).startsWith('verification_v') ? workflow.fail_targets['verification'] : undefined);
+
+  if (!resolvedTargetStatus) {
     return { success: false, handedOff: false, error: `No fail target defined for status: ${currentStatus}` };
   }
 
@@ -268,13 +471,13 @@ export async function handleStageFailure(
   run(
     `INSERT INTO task_activities (id, task_id, activity_type, message, created_at)
      VALUES (?, ?, 'status_changed', ?, ?)`,
-    [crypto.randomUUID(), taskId, `Stage failed: ${currentStatus} → ${targetStatus} (reason: ${failReason})`, now]
+    [crypto.randomUUID(), taskId, `Stage failed: ${currentStatus} → ${resolvedTargetStatus} (reason: ${failReason})`, now]
   );
 
   // Update task status to the fail target
   run(
     'UPDATE tasks SET status = ?, status_reason = ?, updated_at = ? WHERE id = ?',
-    [targetStatus, `Failed: ${failReason}`, now, taskId]
+    [resolvedTargetStatus, `Failed: ${failReason}`, now, taskId]
   );
 
   // Broadcast update
@@ -283,11 +486,11 @@ export async function handleStageFailure(
     broadcast({ type: 'task_updated', payload: updatedTask });
   }
 
-  await recordLearnerOnTransition(taskId, currentStatus, targetStatus, false, failReason);
+  await recordLearnerOnTransition(taskId, currentStatus, resolvedTargetStatus, false, failReason);
   await escalateFailureIfNeeded(taskId, currentStatus);
 
   // Trigger handoff to the agent that owns the fail target stage
-  return handleStageTransition(taskId, targetStatus, {
+  return handleStageTransition(taskId, resolvedTargetStatus, {
     failReason,
     previousStatus: currentStatus,
   });

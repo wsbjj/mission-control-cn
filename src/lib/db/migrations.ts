@@ -636,6 +636,480 @@ const migrations: Migration[] = [
       }
     }
   }
+  ,
+  {
+    id: '015',
+    name: 'add_parent_task_and_task_role_agents',
+    up: (db) => {
+      console.log('[Migration 015] Adding parent_task_id and task_role_agents...');
+
+      const tasksInfo = db.prepare("PRAGMA table_info(tasks)").all() as { name: string }[];
+      if (!tasksInfo.some(col => col.name === 'parent_task_id')) {
+        db.exec(`ALTER TABLE tasks ADD COLUMN parent_task_id TEXT REFERENCES tasks(id)`);
+        console.log('[Migration 015] Added parent_task_id to tasks');
+      }
+
+      // Ensure index exists (works for both fresh and existing DBs)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id)`);
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS task_role_agents (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          role TEXT NOT NULL,
+          agent_id TEXT NOT NULL REFERENCES agents(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(task_id, role, agent_id)
+        );
+      `);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_role_agents_task_role ON task_role_agents(task_id, role)`);
+      console.log('[Migration 015] Ensured task_role_agents table');
+    }
+  }
+  ,
+  {
+    id: '016',
+    name: 'add_verification_v2_status',
+    up: (db) => {
+      const taskSchemaRow = db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
+      ).get() as { sql: string } | undefined;
+
+      // If already updated, do nothing
+      if (taskSchemaRow?.sql?.includes("'verification_v2'")) {
+        console.log('[Migration 016] tasks.status already includes verification_v2 — skipping');
+        return;
+      }
+
+      console.log('[Migration 016] Recreating tasks table to add verification_v2 status...');
+
+      const cols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name);
+      const hasParentTask = cols.includes('parent_task_id');
+      const hasImages = cols.includes('images');
+
+      db.exec(`ALTER TABLE tasks RENAME TO _tasks_old_016`);
+
+      db.exec(`
+        CREATE TABLE tasks (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT DEFAULT 'inbox' CHECK (status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'testing', 'review', 'verification', 'verification_v2', 'done')),
+          priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+          assigned_agent_id TEXT REFERENCES agents(id),
+          created_by_agent_id TEXT REFERENCES agents(id),
+          workspace_id TEXT DEFAULT 'default' REFERENCES workspaces(id),
+          business_id TEXT DEFAULT 'default',
+          due_date TEXT,
+          workflow_template_id TEXT REFERENCES workflow_templates(id),
+          planning_session_key TEXT,
+          planning_messages TEXT,
+          planning_complete INTEGER DEFAULT 0,
+          planning_spec TEXT,
+          planning_agents TEXT,
+          planning_dispatch_error TEXT,
+          status_reason TEXT,
+          parent_task_id TEXT ${hasParentTask ? 'REFERENCES tasks(id)' : ''},
+          images TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+
+      // Copy shared columns (intersection) to keep data during table recreation
+      const newCols = [
+        'id',
+        'title',
+        'description',
+        'status',
+        'priority',
+        'assigned_agent_id',
+        'created_by_agent_id',
+        'workspace_id',
+        'business_id',
+        'due_date',
+        'workflow_template_id',
+        'planning_session_key',
+        'planning_messages',
+        'planning_complete',
+        'planning_spec',
+        'planning_agents',
+        'planning_dispatch_error',
+        'status_reason',
+        'parent_task_id',
+        'images',
+        'created_at',
+        'updated_at',
+      ];
+      const sharedCols = newCols.filter(c => cols.includes(c));
+      const sharedColsSql = sharedCols.join(', ');
+
+      db.exec(`
+        INSERT INTO tasks (${sharedColsSql})
+        SELECT ${sharedColsSql} FROM _tasks_old_016
+      `);
+
+      db.exec('DROP TABLE _tasks_old_016');
+
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id)`);
+
+      console.log('[Migration 016] Tasks table updated with verification_v2');
+    }
+  },
+  {
+    id: '017',
+    name: 'fix_broken_fk_references_verification_v2',
+    up: (db) => {
+      console.log('[Migration 017] Fixing broken FK references from migration 016...');
+
+      const broken = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%_tasks_old_016%'`
+      ).all() as { name: string }[];
+
+      if (broken.length === 0) {
+        console.log('[Migration 017] No broken FK references found — skipping');
+        return;
+      }
+
+      const tableDefinitions: Record<string, string> = {
+        planning_questions: `CREATE TABLE planning_questions (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          category TEXT NOT NULL,
+          question TEXT NOT NULL,
+          question_type TEXT DEFAULT 'multiple_choice' CHECK (question_type IN ('multiple_choice', 'text', 'yes_no')),
+          options TEXT,
+          answer TEXT,
+          answered_at TEXT,
+          sort_order INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        planning_specs: `CREATE TABLE planning_specs (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+          spec_markdown TEXT NOT NULL,
+          locked_at TEXT NOT NULL,
+          locked_by TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        conversations: `CREATE TABLE conversations (
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          type TEXT DEFAULT 'direct' CHECK (type IN ('direct', 'group', 'task')),
+          task_id TEXT REFERENCES tasks(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`,
+        events: `CREATE TABLE events (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          agent_id TEXT REFERENCES agents(id),
+          task_id TEXT REFERENCES tasks(id),
+          message TEXT NOT NULL,
+          metadata TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        openclaw_sessions: `CREATE TABLE openclaw_sessions (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT REFERENCES agents(id),
+          openclaw_session_id TEXT NOT NULL,
+          channel TEXT,
+          status TEXT DEFAULT 'active',
+          session_type TEXT DEFAULT 'persistent',
+          task_id TEXT REFERENCES tasks(id),
+          ended_at TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`,
+        task_activities: `CREATE TABLE task_activities (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          agent_id TEXT REFERENCES agents(id),
+          activity_type TEXT NOT NULL,
+          message TEXT NOT NULL,
+          metadata TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        task_deliverables: `CREATE TABLE task_deliverables (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          deliverable_type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          path TEXT,
+          description TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        task_roles: `CREATE TABLE task_roles (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          role TEXT NOT NULL,
+          agent_id TEXT NOT NULL REFERENCES agents(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(task_id, role)
+        )`,
+        task_role_agents: `CREATE TABLE task_role_agents (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          role TEXT NOT NULL,
+          agent_id TEXT NOT NULL REFERENCES agents(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(task_id, role, agent_id)
+        )`,
+      };
+
+      for (const { name } of broken) {
+        const newSql = tableDefinitions[name];
+        if (!newSql) {
+          console.warn(`[Migration 017] No definition for table ${name} — skipping`);
+          continue;
+        }
+
+        const cols = (db.prepare(`PRAGMA table_info(${name})`).all() as { name: string }[]).map(c => c.name);
+        const tmpName = `_${name}_fix_017`;
+        db.exec(`ALTER TABLE ${name} RENAME TO ${tmpName}`);
+        db.exec(newSql);
+        db.exec(`INSERT INTO ${name} (${cols.join(', ')}) SELECT ${cols.join(', ')} FROM ${tmpName}`);
+        db.exec(`DROP TABLE ${tmpName}`);
+        console.log(`[Migration 017] Recreated table: ${name}`);
+      }
+
+      // Recreate indexes for core tables (idempotent)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_planning_questions_task ON planning_questions(task_id, sort_order)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_roles_task ON task_roles(task_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_deliverables_task ON task_deliverables(task_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_openclaw_sessions_task ON openclaw_sessions(task_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_role_agents_task_role ON task_role_agents(task_id, role)`);
+      console.log('[Migration 017] FK references fixed');
+    }
+  }
+  ,
+  {
+    id: '018',
+    name: 'relax_verification_rounds_status_check',
+    up: (db) => {
+      const taskSchemaRow = db.prepare(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'"
+      ).get() as { sql: string } | undefined;
+
+      if (taskSchemaRow?.sql?.includes("status LIKE 'verification_v%'")) {
+        console.log('[Migration 018] tasks.status already allows verification_v% — skipping');
+        return;
+      }
+
+      console.log('[Migration 018] Recreating tasks table to relax verification_vN status constraint...');
+
+      const cols = (db.prepare('PRAGMA table_info(tasks)').all() as { name: string }[]).map(c => c.name);
+      const hasParentTask = cols.includes('parent_task_id');
+
+      db.exec(`ALTER TABLE tasks RENAME TO _tasks_old_018`);
+
+      db.exec(`
+        CREATE TABLE tasks (
+          id TEXT PRIMARY KEY,
+          title TEXT NOT NULL,
+          description TEXT,
+          status TEXT DEFAULT 'inbox' CHECK (
+            status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'testing', 'review', 'verification', 'done')
+            OR status LIKE 'verification_v%'
+          ),
+          priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+          assigned_agent_id TEXT REFERENCES agents(id),
+          created_by_agent_id TEXT REFERENCES agents(id),
+          workspace_id TEXT DEFAULT 'default' REFERENCES workspaces(id),
+          business_id TEXT DEFAULT 'default',
+          due_date TEXT,
+          workflow_template_id TEXT REFERENCES workflow_templates(id),
+          planning_session_key TEXT,
+          planning_messages TEXT,
+          planning_complete INTEGER DEFAULT 0,
+          planning_spec TEXT,
+          planning_agents TEXT,
+          planning_dispatch_error TEXT,
+          status_reason TEXT,
+          parent_task_id TEXT ${hasParentTask ? 'REFERENCES tasks(id)' : ''},
+          images TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )
+      `);
+
+      const newCols = [
+        'id',
+        'title',
+        'description',
+        'status',
+        'priority',
+        'assigned_agent_id',
+        'created_by_agent_id',
+        'workspace_id',
+        'business_id',
+        'due_date',
+        'workflow_template_id',
+        'planning_session_key',
+        'planning_messages',
+        'planning_complete',
+        'planning_spec',
+        'planning_agents',
+        'planning_dispatch_error',
+        'status_reason',
+        'parent_task_id',
+        'images',
+        'created_at',
+        'updated_at',
+      ];
+
+      const sharedCols = newCols.filter(c => cols.includes(c));
+      const sharedColsSql = sharedCols.join(', ');
+
+      db.exec(`
+        INSERT INTO tasks (${sharedColsSql})
+        SELECT ${sharedColsSql} FROM _tasks_old_018
+      `);
+
+      db.exec('DROP TABLE _tasks_old_018');
+
+      // Recreate core indexes
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_workspace ON tasks(workspace_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent_task_id ON tasks(parent_task_id)`);
+
+      console.log('[Migration 018] Tasks table updated with verification_v%');
+    }
+  },
+  {
+    id: '019',
+    name: 'fix_broken_fk_references_verification_vN',
+    up: (db) => {
+      console.log('[Migration 019] Fixing broken FK references after migration 018...');
+
+      const broken = db.prepare(
+        `SELECT name FROM sqlite_master WHERE type='table' AND sql LIKE '%_tasks_old_018%'`
+      ).all() as { name: string }[];
+
+      if (broken.length === 0) {
+        console.log('[Migration 019] No broken FK references found — skipping');
+        return;
+      }
+
+      const tableDefinitions: Record<string, string> = {
+        planning_questions: `CREATE TABLE planning_questions (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          category TEXT NOT NULL,
+          question TEXT NOT NULL,
+          question_type TEXT DEFAULT 'multiple_choice' CHECK (question_type IN ('multiple_choice', 'text', 'yes_no')),
+          options TEXT,
+          answer TEXT,
+          answered_at TEXT,
+          sort_order INTEGER DEFAULT 0,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        planning_specs: `CREATE TABLE planning_specs (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+          spec_markdown TEXT NOT NULL,
+          locked_at TEXT NOT NULL,
+          locked_by TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        conversations: `CREATE TABLE conversations (
+          id TEXT PRIMARY KEY,
+          title TEXT,
+          type TEXT DEFAULT 'direct' CHECK (type IN ('direct', 'group', 'task')),
+          task_id TEXT REFERENCES tasks(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`,
+        events: `CREATE TABLE events (
+          id TEXT PRIMARY KEY,
+          type TEXT NOT NULL,
+          agent_id TEXT REFERENCES agents(id),
+          task_id TEXT REFERENCES tasks(id),
+          message TEXT NOT NULL,
+          metadata TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        openclaw_sessions: `CREATE TABLE openclaw_sessions (
+          id TEXT PRIMARY KEY,
+          agent_id TEXT REFERENCES agents(id),
+          openclaw_session_id TEXT NOT NULL,
+          channel TEXT,
+          status TEXT DEFAULT 'active',
+          session_type TEXT DEFAULT 'persistent',
+          task_id TEXT REFERENCES tasks(id),
+          ended_at TEXT,
+          created_at TEXT DEFAULT (datetime('now')),
+          updated_at TEXT DEFAULT (datetime('now'))
+        )`,
+        task_activities: `CREATE TABLE task_activities (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          agent_id TEXT REFERENCES agents(id),
+          activity_type TEXT NOT NULL,
+          message TEXT NOT NULL,
+          metadata TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        task_deliverables: `CREATE TABLE task_deliverables (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          deliverable_type TEXT NOT NULL,
+          title TEXT NOT NULL,
+          path TEXT,
+          description TEXT,
+          created_at TEXT DEFAULT (datetime('now'))
+        )`,
+        task_roles: `CREATE TABLE task_roles (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          role TEXT NOT NULL,
+          agent_id TEXT NOT NULL REFERENCES agents(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(task_id, role)
+        )`,
+        task_role_agents: `CREATE TABLE task_role_agents (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          role TEXT NOT NULL,
+          agent_id TEXT NOT NULL REFERENCES agents(id),
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(task_id, role, agent_id)
+        )`,
+      };
+
+      for (const { name } of broken) {
+        const newSql = tableDefinitions[name];
+        if (!newSql) {
+          console.warn(`[Migration 019] No definition for table ${name} — skipping`);
+          continue;
+        }
+
+        const cols = (db.prepare(`PRAGMA table_info(${name})`).all() as { name: string }[]).map(c => c.name);
+        const tmpName = `_${name}_fix_019`;
+        db.exec(`ALTER TABLE ${name} RENAME TO ${tmpName}`);
+        db.exec(newSql);
+        db.exec(`INSERT INTO ${name} (${cols.join(', ')}) SELECT ${cols.join(', ')} FROM ${tmpName}`);
+        db.exec(`DROP TABLE ${tmpName}`);
+        console.log(`[Migration 019] Recreated table: ${name}`);
+      }
+
+      // Recreate indexes for core tables (idempotent)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_planning_questions_task ON planning_questions(task_id, sort_order)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_roles_task ON task_roles(task_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at DESC)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_activities_task ON task_activities(task_id, created_at DESC)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_deliverables_task ON task_deliverables(task_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_openclaw_sessions_task ON openclaw_sessions(task_id)`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_task_role_agents_task_role ON task_role_agents(task_id, role)`);
+      console.log('[Migration 019] FK references fixed');
+    }
+  }
 ];
 
 /**

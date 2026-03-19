@@ -2,7 +2,17 @@
 
 export type AgentStatus = 'standby' | 'working' | 'offline';
 
-export type TaskStatus = 'pending_dispatch' | 'planning' | 'inbox' | 'assigned' | 'in_progress' | 'testing' | 'review' | 'verification' | 'done';
+export type TaskStatus =
+  | 'pending_dispatch'
+  | 'planning'
+  | 'inbox'
+  | 'assigned'
+  | 'in_progress'
+  | 'testing'
+  | 'review'
+  | 'verification'
+  | `verification_v${number}`
+  | 'done';
 
 export type TaskPriority = 'low' | 'normal' | 'high' | 'urgent';
 
@@ -66,6 +76,7 @@ export interface Task {
   business_id: string;
   due_date?: string;
   workflow_template_id?: string;
+  parent_task_id?: string | null;
   // Derived field (API-only): statuses allowed by the task's workflow template.
   // Present on GET /api/tasks list for client-side guards.
   workflow_allowed_statuses?: TaskStatus[];

@@ -22,14 +22,9 @@ export async function createWorkspaceRootAgent(params: {
   }
 
   const created = await client.createAgent({
+    workspace: params.workspaceSlug,
     name: expectedName,
     model: params.preferredModel || undefined,
-    metadata: {
-      source: 'mission-control',
-      workspace_id: params.workspaceId,
-      workspace_slug: params.workspaceSlug,
-      kind: 'workspace-root',
-    },
   });
 
   if (!created?.id) {

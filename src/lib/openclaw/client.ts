@@ -495,9 +495,9 @@ export class OpenClawClient extends EventEmitter {
   }
 
   async createAgent(params: {
+    workspace: string;
     name: string;
     model?: string;
-    metadata?: Record<string, unknown>;
   }): Promise<GatewayAgentRecord> {
     const result = await this.call<GatewayAgentRecord | { agent?: GatewayAgentRecord }>('agents.create', params as unknown as Record<string, unknown>);
     if (result && typeof result === 'object' && 'agent' in result && result.agent) {

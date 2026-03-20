@@ -5,6 +5,7 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { ensureOpenClawIsolationColumns } from '@/lib/db/runtime-openclaw-columns';
 import { broadcast } from '@/lib/events';
 
 export const dynamic = 'force-dynamic';
@@ -30,6 +31,7 @@ export async function POST(
     }
 
     const db = getDb();
+    ensureOpenClawIsolationColumns(db);
     const sessionId = crypto.randomUUID();
     const task = db.prepare(`
       SELECT t.id, t.workspace_id, t.assigned_agent_id, w.openclaw_root_agent_id

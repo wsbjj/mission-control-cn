@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { bootstrapCoreAgents, cloneWorkflowTemplates } from '@/lib/bootstrap-agents';
+import { ensureOpenClawIsolationColumns } from '@/lib/db/runtime-openclaw-columns';
 import { createWorkspaceRootAgent } from '@/lib/openclaw/workspace-root-agent';
 import type { Workspace, WorkspaceStats, TaskStatus } from '@/lib/types';
 
@@ -89,6 +90,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDb();
+    ensureOpenClawIsolationColumns(db);
     const id = crypto.randomUUID();
     const slug = generateSlug(name);
     

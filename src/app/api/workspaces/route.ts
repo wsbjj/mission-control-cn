@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { bootstrapCoreAgents, cloneWorkflowTemplates } from '@/lib/bootstrap-agents';
+import { createWorkspaceRootAgent } from '@/lib/openclaw/workspace-root-agent';
 import type { Workspace, WorkspaceStats, TaskStatus } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -101,6 +102,22 @@ export async function POST(request: NextRequest) {
       INSERT INTO workspaces (id, name, slug, description, icon)
       VALUES (?, ?, ?, ?, ?)
     `).run(id, name.trim(), slug, description || null, icon || '📁');
+
+    try {
+      const openclawRoot = await createWorkspaceRootAgent({
+        workspaceId: id,
+        workspaceSlug: slug,
+      });
+      db.prepare(`
+        UPDATE workspaces
+        SET openclaw_root_agent_id = ?, openclaw_root_agent_status = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(openclawRoot.agentId, openclawRoot.status, id);
+    } catch (openclawError) {
+      // Keep workspace creation atomic from user's perspective.
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      throw new Error(`Failed to create OpenClaw workspace root agent: ${(openclawError as Error).message}`);
+    }
 
     // Clone workflow templates and bootstrap core agents for the new workspace
     cloneWorkflowTemplates(db, id);

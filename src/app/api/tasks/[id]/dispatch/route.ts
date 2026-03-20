@@ -68,12 +68,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Get agent details
     const agent = queryOne<Agent>(
-      'SELECT * FROM agents WHERE id = ?',
-      [assignedAgentId]
+      'SELECT * FROM agents WHERE id = ? AND workspace_id = ?',
+      [assignedAgentId, task.workspace_id]
     );
 
     if (!agent) {
-      return NextResponse.json({ error: 'Assigned agent not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Assigned agent not found in workspace' }, { status: 404 });
     }
 
     // Check if dispatching to the master agent while there are other orchestrators available
@@ -153,6 +153,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: 'Failed to create agent session' },
         { status: 500 }
+      );
+    }
+
+    if (session.task_id && session.task_id !== task.id) {
+      return NextResponse.json(
+        { error: 'Session scope mismatch for this task' },
+        { status: 409 }
       );
     }
 
@@ -332,7 +339,7 @@ If you need help or clarification, ask the orchestrator.`;
     try {
       // Use sessionKey for routing to the agent's session
       // Format: {prefix}{openclaw_session_id} where prefix defaults to 'agent:main:'
-      const prefix = agent.session_key_prefix || 'agent:main:';
+      const prefix = session.inherited_session_key_prefix || agent.session_key_prefix || 'agent:main:';
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
       await client.call('chat.send', {
         sessionKey,

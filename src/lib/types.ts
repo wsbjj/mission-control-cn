@@ -135,6 +135,8 @@ export interface Workspace {
   slug: string;
   description?: string;
   icon: string;
+  openclaw_root_agent_id?: string;
+  openclaw_root_agent_status?: string;
   created_at: string;
   updated_at: string;
 }
@@ -206,6 +208,9 @@ export interface OpenClawSession {
   id: string;
   agent_id: string;
   openclaw_session_id: string;
+  parent_openclaw_agent_id?: string;
+  inherited_session_key_prefix?: string;
+  inherited_model?: string;
   channel?: string;
   status: string;
   session_type: 'persistent' | 'subagent';

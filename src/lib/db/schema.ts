@@ -17,6 +17,8 @@ CREATE TABLE IF NOT EXISTS workspaces (
   slug TEXT NOT NULL UNIQUE,
   description TEXT,
   icon TEXT DEFAULT '📁',
+  openclaw_root_agent_id TEXT,
+  openclaw_root_agent_status TEXT DEFAULT 'pending',
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -144,6 +146,9 @@ CREATE TABLE IF NOT EXISTS openclaw_sessions (
   id TEXT PRIMARY KEY,
   agent_id TEXT REFERENCES agents(id),
   openclaw_session_id TEXT NOT NULL,
+  parent_openclaw_agent_id TEXT,
+  inherited_session_key_prefix TEXT,
+  inherited_model TEXT,
   channel TEXT,
   status TEXT DEFAULT 'active',
   session_type TEXT DEFAULT 'persistent',

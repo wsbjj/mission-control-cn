@@ -27,6 +27,14 @@ export interface GatewayConfigSnapshot {
   };
 }
 
+export interface GatewayAgentRecord {
+  id?: string;
+  name?: string;
+  label?: string;
+  model?: string;
+  status?: string;
+}
+
 const GATEWAY_URL = process.env.OPENCLAW_GATEWAY_URL || 'ws://127.0.0.1:18789';
 const GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || '';
 
@@ -484,6 +492,22 @@ export class OpenClawClient extends EventEmitter {
       return result;
     }
     return [];
+  }
+
+  async createAgent(params: {
+    name: string;
+    model?: string;
+    metadata?: Record<string, unknown>;
+  }): Promise<GatewayAgentRecord> {
+    const result = await this.call<GatewayAgentRecord | { agent?: GatewayAgentRecord }>('agents.create', params as unknown as Record<string, unknown>);
+    if (result && typeof result === 'object' && 'agent' in result && result.agent) {
+      return result.agent;
+    }
+    return (result || {}) as GatewayAgentRecord;
+  }
+
+  async disableAgent(agentId: string): Promise<void> {
+    await this.call('agents.disable', { agentId });
   }
 
   // Node methods (device capabilities)

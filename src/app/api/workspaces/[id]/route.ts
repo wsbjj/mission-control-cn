@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { disableWorkspaceRootAgent } from '@/lib/openclaw/workspace-root-agent';
 
 export const dynamic = 'force-dynamic';
 // GET /api/workspaces/[id] - Get a single workspace
@@ -121,6 +122,18 @@ export async function DELETE(
       }, { status: 400 });
     }
     
+    // Soft-disable workspace root agent on OpenClaw side (best-effort).
+    if (existing.openclaw_root_agent_id) {
+      try {
+        await disableWorkspaceRootAgent(existing.openclaw_root_agent_id as string);
+      } catch (error) {
+        return NextResponse.json({
+          error: 'Failed to disable OpenClaw workspace root agent',
+          detail: (error as Error).message,
+        }, { status: 503 });
+      }
+    }
+
     // Delete associated records that don't block deletion
     db.prepare('DELETE FROM workflow_templates WHERE workspace_id = ?').run(id);
     db.prepare('DELETE FROM knowledge_entries WHERE workspace_id = ?').run(id);

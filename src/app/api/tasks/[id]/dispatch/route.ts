@@ -31,10 +31,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // Get task with agent info
-    const task = queryOne<Task & { assigned_agent_name?: string; workspace_id: string }>(
-      `SELECT t.*, a.name as assigned_agent_name, a.is_master
+    const task = queryOne<Task & { assigned_agent_name?: string; workspace_id: string; workspace_slug?: string }>(
+      `SELECT t.*, a.name as assigned_agent_name, a.is_master, w.slug as workspace_slug
        FROM tasks t
        LEFT JOIN agents a ON t.assigned_agent_id = a.id
+       LEFT JOIN workspaces w ON w.id = t.workspace_id
        WHERE t.id = ?`,
       [id]
     );
@@ -339,7 +340,8 @@ If you need help or clarification, ask the orchestrator.`;
     try {
       // Use sessionKey for routing to the agent's session
       // Format: {prefix}{openclaw_session_id} where prefix defaults to 'agent:main:'
-      const prefix = session.inherited_session_key_prefix || agent.session_key_prefix || 'agent:main:';
+      const workspacePrefix = task.workspace_slug ? `agent:${task.workspace_slug}:` : 'agent:main:';
+      const prefix = session.inherited_session_key_prefix || agent.session_key_prefix || workspacePrefix;
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
       await client.call('chat.send', {
         sessionKey,

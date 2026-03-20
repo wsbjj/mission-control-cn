@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { bootstrapCoreAgents, cloneWorkflowTemplates } from '@/lib/bootstrap-agents';
 import { ensureOpenClawIsolationColumns } from '@/lib/db/runtime-openclaw-columns';
-import { createWorkspaceRootAgent } from '@/lib/openclaw/workspace-root-agent';
+import { createWorkspaceRootAgent, ensureWorkspaceRoleAgents } from '@/lib/openclaw/workspace-root-agent';
 import type { Workspace, WorkspaceStats, TaskStatus } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -124,6 +124,35 @@ export async function POST(request: NextRequest) {
     // Clone workflow templates and bootstrap core agents for the new workspace
     cloneWorkflowTemplates(db, id);
     bootstrapCoreAgents(id);
+
+    try {
+      const workspaceAgents = db.prepare(`
+        SELECT id, role, name, model
+        FROM agents
+        WHERE workspace_id = ? AND role IN ('builder', 'tester', 'reviewer', 'learner')
+      `).all(id) as Array<{ id: string; role: string; name: string; model?: string | null }>;
+
+      const roleMapping = await ensureWorkspaceRoleAgents({
+        workspaceSlug: slug,
+        roles: workspaceAgents.map((a) => ({ role: a.role, name: a.name, model: a.model || null })),
+      });
+
+      const updateAgent = db.prepare(`
+        UPDATE agents
+        SET gateway_agent_id = ?, session_key_prefix = ?, source = 'gateway', updated_at = datetime('now')
+        WHERE id = ?
+      `);
+      for (const agent of workspaceAgents) {
+        const map = roleMapping.get(agent.role);
+        if (!map) continue;
+        updateAgent.run(map.gatewayAgentId, map.sessionKeyPrefix, agent.id);
+      }
+    } catch (provisionError) {
+      db.prepare('DELETE FROM agents WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM workflow_templates WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      throw new Error(`Failed to provision workspace role agents: ${(provisionError as Error).message}`);
+    }
 
     const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
     return NextResponse.json(workspace, { status: 201 });

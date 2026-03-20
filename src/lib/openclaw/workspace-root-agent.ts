@@ -57,6 +57,52 @@ export async function createWorkspaceRootAgent(params: {
   throw new Error('OpenClaw did not return or expose a resolvable root agent id after create');
 }
 
+export async function ensureWorkspaceRoleAgents(params: {
+  workspaceSlug: string;
+  roles: Array<{ role: string; name: string; model?: string | null }>;
+}): Promise<Map<string, { gatewayAgentId: string; sessionKeyPrefix: string }>> {
+  const client = getOpenClawClient();
+  if (!client.isConnected()) {
+    await client.connect();
+  }
+
+  const existing = await client.listAgents() as Array<{ id?: string; name?: string; status?: string }>;
+  const mapping = new Map<string, { gatewayAgentId: string; sessionKeyPrefix: string }>();
+  const prefix = `agent:${params.workspaceSlug}:`;
+
+  for (const roleAgent of params.roles) {
+    const expectedName = `mc-${params.workspaceSlug}-${roleAgent.role}-agent`;
+    const found = existing.find((a) => a.name === expectedName);
+    if (found?.id) {
+      mapping.set(roleAgent.role, { gatewayAgentId: found.id, sessionKeyPrefix: prefix });
+      continue;
+    }
+
+    const created = await client.createAgent({
+      workspace: params.workspaceSlug,
+      name: expectedName,
+      model: roleAgent.model || undefined,
+    }) as unknown as Record<string, unknown>;
+
+    const createdId = resolveAgentId(created);
+    if (createdId) {
+      mapping.set(roleAgent.role, { gatewayAgentId: createdId, sessionKeyPrefix: prefix });
+      continue;
+    }
+
+    const refreshed = await client.listAgents() as Array<{ id?: string; name?: string }>;
+    const matched = refreshed.find((a) => a.name === expectedName);
+    if (matched?.id) {
+      mapping.set(roleAgent.role, { gatewayAgentId: matched.id, sessionKeyPrefix: prefix });
+      continue;
+    }
+
+    throw new Error(`Unable to resolve workspace role agent id for role=${roleAgent.role}`);
+  }
+
+  return mapping;
+}
+
 export async function disableWorkspaceRootAgent(agentId: string): Promise<void> {
   const client = getOpenClawClient();
   if (!client.isConnected()) {

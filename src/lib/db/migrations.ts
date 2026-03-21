@@ -5,9 +5,12 @@
  * 1. Tracks which migrations have been applied
  * 2. Runs new migrations automatically on startup
  * 3. Never runs the same migration twice
+ * 4. Creates a timestamped backup before any migration runs
  */
 
 import Database from 'better-sqlite3';
+import fs from 'fs';
+import path from 'path';
 import { bootstrapCoreAgentsRaw } from '@/lib/bootstrap-agents';
 
 interface Migration {
@@ -569,39 +572,62 @@ const migrations: Migration[] = [
     id: '013',
     name: 'reset_fresh_start',
     up: (db) => {
-      console.log('[Migration 013] Fresh start — wiping all data and bootstrapping...');
+      // Safety guard: this migration was originally a one-time developer reset tool.
+      // If the database already contains real data (existing tasks, agents, etc.), we
+      // skip the destructive DELETE operations entirely to prevent accidental data loss
+      // on existing deployments. The non-destructive parts (template configuration)
+      // still run safely regardless.
+      //
+      // Background: migration 013 was committed as a dev convenience "fresh start".
+      // It should never silently wipe a production database that has accumulated real
+      // work. A database with tasks in it is NOT a "fresh start" candidate.
+      const taskCount = (db.prepare('SELECT COUNT(*) as count FROM tasks').get() as { count: number }).count;
+      const agentCount = (db.prepare("SELECT COUNT(*) as count FROM agents WHERE source = 'local'").get() as { count: number }).count;
+      // Check BOTH tables: a database with configured local agents but no tasks yet
+      // (e.g. fresh install where agents were bootstrapped but no work has been submitted)
+      // should NOT be wiped — the user's agent configuration is real data worth preserving.
+      const hasRealData = taskCount > 0 || agentCount > 0;
 
-      // 1. Delete all row data (keep workspaces + workflow_templates infrastructure)
-      const tablesToWipe = [
-        'task_roles',
-        'task_activities',
-        'task_deliverables',
-        'planning_questions',
-        'planning_specs',
-        'knowledge_entries',
-        'messages',
-        'conversation_participants',
-        'conversations',
-        'events',
-        'openclaw_sessions',
-        'agents',
-        'tasks',
-      ];
-      for (const table of tablesToWipe) {
-        try {
-          db.exec(`DELETE FROM ${table}`);
-          console.log(`[Migration 013] Wiped ${table}`);
-        } catch (err) {
-          // Table might not exist on fresh DBs — skip silently
-          console.log(`[Migration 013] Table ${table} not found — skipping`);
+      if (hasRealData) {
+        console.warn(`[Migration 013] WARNING: Skipping data wipe — database has ${taskCount} task(s) and ${agentCount} local agent(s).`);
+        console.warn('[Migration 013] This migration is a dev-only reset tool and will not destroy real data.');
+      } else {
+        console.log('[Migration 013] Fresh database detected — wiping seed data and bootstrapping...');
+
+        // 1. Delete all row data (keep workspaces + workflow_templates infrastructure)
+        const tablesToWipe = [
+          'task_roles',
+          'task_activities',
+          'task_deliverables',
+          'planning_questions',
+          'planning_specs',
+          'knowledge_entries',
+          'messages',
+          'conversation_participants',
+          'conversations',
+          'events',
+          'openclaw_sessions',
+          'agents',
+          'tasks',
+        ];
+        for (const table of tablesToWipe) {
+          try {
+            db.exec(`DELETE FROM ${table}`);
+            console.log(`[Migration 013] Wiped ${table}`);
+          } catch (err) {
+            // Table might not exist on fresh DBs — skip silently
+            console.log(`[Migration 013] Table ${table} not found — skipping`);
+          }
         }
       }
 
       // 2. Make Strict the default template, Standard non-default
+      // (non-destructive config change — safe to apply regardless of data presence)
       db.exec(`UPDATE workflow_templates SET is_default = 0 WHERE id = 'tpl-standard'`);
       db.exec(`UPDATE workflow_templates SET is_default = 1 WHERE id = 'tpl-strict'`);
 
       // 3. Fix Strict template: verification role → 'reviewer' (was 'verifier')
+      // (non-destructive update — safe to apply regardless of data presence)
       const fixedStages = JSON.stringify([
         { id: 'build',  label: 'Build',  role: 'builder',  status: 'in_progress' },
         { id: 'test',   label: 'Test',   role: 'tester',   status: 'testing' },
@@ -616,10 +642,16 @@ const migrations: Migration[] = [
       console.log('[Migration 013] Strict template is now default with reviewer role');
 
       // 4. Bootstrap 4 core agents for the default workspace
+      // (bootstrapCoreAgentsRaw already guards against duplicate inserts — it checks
+      // agent count and skips if the workspace already has agents)
       const missionControlUrl = process.env.MISSION_CONTROL_URL || 'http://localhost:4000';
       bootstrapCoreAgentsRaw(db, 'default', missionControlUrl);
 
-      console.log('[Migration 013] Fresh start complete');
+      if (hasRealData) {
+        console.log(`[Migration 013] Complete (data wipe skipped — ${taskCount} task(s) and ${agentCount} local agent(s) preserved)`);
+      } else {
+        console.log('[Migration 013] Fresh start complete');
+      }
     }
   },
   {
@@ -1326,7 +1358,87 @@ const migrations: Migration[] = [
 ];
 
 /**
- * Run all pending migrations
+ * Creates a timestamped backup of the database file before running migrations.
+ *
+ * Uses SQLite's VACUUM INTO command, which produces a consistent, compacted copy
+ * that is safe to create while the database is open in WAL mode. A plain
+ * fs.copyFile() is NOT safe in WAL mode — the .db and .wal files are updated
+ * separately and may not represent a coherent snapshot when copied together.
+ *
+ * The backup is written to a `db-backups/` subdirectory next to the source
+ * database, named: <original-filename>.backup.<ISO-8601-timestamp>
+ * e.g.: db-backups/mission-control.db.backup.2026-03-14T16-32-00
+ *
+ * Keeps the last MAX_BACKUPS backups and removes older ones automatically.
+ * Backup failure is fatal: if the backup cannot be created, this function
+ * throws and the caller must abort the migration run.
+ */
+const MAX_BACKUPS = 5;
+
+function createPreMigrationBackup(db: Database.Database): void {
+  const dbPath = db.name;
+
+  // Skip backup for in-memory or temp-file databases (used in tests)
+  if (!dbPath || dbPath === ':memory:' || dbPath === '') {
+    console.log('[DB] Skipping pre-migration backup for non-file database');
+    return;
+  }
+
+  const dbDir = path.dirname(dbPath);
+  const backupDir = path.join(dbDir, 'db-backups');
+  fs.mkdirSync(backupDir, { recursive: true });
+
+  // Build a timestamp string that is valid in filenames on all platforms.
+  // ISO 8601 with colons replaced — colons are illegal in Windows filenames.
+  // Milliseconds are stripped for a cleaner, more readable filename.
+  const timestamp = new Date().toISOString()
+    .replace(/:/g, '-')   // colons → hyphens (Windows compatibility)
+    .replace(/\..+$/, ''); // strip fractional seconds: "2026-03-14T16-32-00"
+
+  // Full original filename (e.g. "mission-control.db") becomes the prefix so
+  // the backup is clearly associated with its source database.
+  const dbBasename = path.basename(dbPath);                  // "mission-control.db"
+  const backupFilename = `${dbBasename}.backup.${timestamp}`; // "mission-control.db.backup.2026-03-14T16-32-00"
+  const backupPath = path.join(backupDir, backupFilename);
+
+  // VACUUM INTO creates a consistent, compacted snapshot of the open database.
+  // It flushes all WAL frames and writes a clean .db file — no need to also
+  // copy the -shm or -wal sidecar files.
+  // Single-quote escaping prevents SQL injection via filesystem paths.
+  db.exec(`VACUUM INTO '${backupPath.replace(/'/g, "''")}'`);
+
+  console.log(`[DB] Pre-migration backup created: ${backupFilename}`);
+
+  // Prune old backups — keep only the most recent MAX_BACKUPS to limit disk usage.
+  // ISO timestamps sort lexicographically, so a simple .sort() gives correct order.
+  const backupFiles = fs.readdirSync(backupDir)
+    .filter(f => f.startsWith(`${dbBasename}.backup.`))
+    .sort();
+
+  if (backupFiles.length > MAX_BACKUPS) {
+    // Wrap cleanup in its own try/catch so a failure here (e.g. file locked on
+    // Windows, permissions issue) is reported clearly as a cleanup problem —
+    // not as "backup failed". The backup itself already succeeded at this point.
+    try {
+      const toDelete = backupFiles.slice(0, backupFiles.length - MAX_BACKUPS);
+      for (const filename of toDelete) {
+        fs.unlinkSync(path.join(backupDir, filename));
+        console.log(`[DB] Removed old backup: ${filename}`);
+      }
+    } catch (cleanupError) {
+      console.warn('[DB] Warning: could not remove old backup file(s) — cleanup failed, but the backup itself is intact:', cleanupError);
+    }
+  }
+}
+
+/**
+ * Run all pending migrations.
+ *
+ * Before applying any pending migration, a timestamped backup of the database
+ * file is created in a `db-backups/` subdirectory. If backup creation fails,
+ * the migration run is aborted entirely — protecting data takes priority over
+ * applying schema changes. Migration failure IS fatal and throws, preventing
+ * the application from starting in a partially-migrated state.
  */
 export function runMigrations(db: Database.Database): void {
   // Create migrations tracking table
@@ -1343,12 +1455,20 @@ export function runMigrations(db: Database.Database): void {
     (db.prepare('SELECT id FROM _migrations').all() as { id: string }[]).map(m => m.id)
   );
 
-  // Run pending migrations in order
-  for (const migration of migrations) {
-    if (applied.has(migration.id)) {
-      continue;
-    }
+  // Identify which migrations still need to run
+  const pending = migrations.filter(m => !applied.has(m.id));
 
+  // Create a timestamped backup BEFORE touching the database.
+  // Backup failure is FATAL — if we cannot create a recovery point, we do not
+  // apply migrations. Data safety takes priority over schema updates. Operators
+  // must resolve the underlying cause (e.g. disk space, permissions) first.
+  // The error is allowed to propagate and will abort the migration run.
+  if (pending.length > 0) {
+    createPreMigrationBackup(db);
+  }
+
+  // Run pending migrations in order
+  for (const migration of pending) {
     console.log(`[DB] Running migration ${migration.id}: ${migration.name}`);
 
     try {

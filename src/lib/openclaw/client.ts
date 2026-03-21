@@ -277,6 +277,14 @@ export class OpenClawClient extends EventEmitter {
 
             console.log('[OpenClaw] Received:', data.type === 'res' ? `res:${String(data.id).slice(0, 8)}` : this.generateEventId(data).slice(0, 16));
 
+            // Forward gateway streaming events so subscribers can tap in
+            if (data.type === 'event' && data.event === 'agent' && data.payload) {
+              this.emit('agent_event', data.payload);
+            }
+            if (data.type === 'event' && data.event === 'chat' && data.payload) {
+              this.emit('chat_event', data.payload);
+            }
+
             // Handle challenge-response authentication (OpenClaw RequestFrame format)
             if (data.type === 'event' && data.event === 'connect.challenge') {
               console.log('[OpenClaw] Challenge received, responding...');

@@ -24,6 +24,11 @@ export function getDb(): Database.Database {
     // This handles both new and existing databases
     runMigrations(db);
 
+    // Recover orphaned autopilot cycles from prior crash/restart
+    import('@/lib/autopilot/recovery').then(({ recoverOrphanedCycles }) =>
+      recoverOrphanedCycles().catch(err => console.warn('[Recovery] Failed:', err))
+    );
+
     // Keep Mission Control's agent catalog synced with OpenClaw-installed agents
     ensureCatalogSyncScheduled();
     

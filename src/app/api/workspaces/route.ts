@@ -39,6 +39,7 @@ export async function GET(request: NextRequest) {
           inbox: 0,
           assigned: 0,
           in_progress: 0,
+          convoy_active: 0,
           testing: 0,
           review: 0,
           verification: 0,

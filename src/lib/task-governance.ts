@@ -2,7 +2,7 @@ import { queryAll, queryOne, run, transaction } from '@/lib/db';
 import { notifyLearner } from '@/lib/learner';
 import type { Task } from '@/lib/types';
 
-const ACTIVE_STATUSES = ['assigned', 'in_progress', 'testing', 'review', 'verification'];
+const ACTIVE_STATUSES = ['assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification'];
 
 export function hasStageEvidence(taskId: string): boolean {
   const deliverable = queryOne<{ count: number }>('SELECT COUNT(*) as count FROM task_deliverables WHERE task_id = ?', [taskId]);

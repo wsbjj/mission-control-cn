@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Autensa v2 — The Autonomous Product Engine</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0a0d;
+    --bg-card: #121217;
+    --bg-card-hover: #1a1a1f;
+    --border: #2f313d;
+    --border-strong: #4b4437;
+    --text: #f2f0eb;
+    --text-dim: #b0aa9a;
+    --accent: #f5b14a;
+    --accent-glow: rgba(245, 177, 74, 0.3);
+    --gold: #ffd17a;
+    --green: #7bc67e;
+    --amber: #f5b14a;
+    --red: #e8756d;
+    --orange: #e8854a;
+    --purple: #b39ddb;
+    --teal: #5bb8a9;
+    --copper: #d4845e;
+    --panel: #15161c;
+  }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  /* Every slide is hidden by default, shown with .active */
+  .slide { display: none; flex-direction: column; align-items: center; justify-content: center; padding: 60px 80px; position: absolute; inset: 0; }
+  .slide.active { display: flex; }
+
+  /* Nav */
+  .nav { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; z-index: 100; background: rgba(21,22,28,0.92); backdrop-filter: blur(10px); padding: 10px 20px; border-radius: 50px; border: 1px solid var(--border); }
+  .nav-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); cursor: pointer; transition: all 0.3s; }
+  .nav-dot.active { background: linear-gradient(135deg, var(--amber), var(--gold)); box-shadow: 0 0 10px var(--accent-glow); width: 24px; border-radius: 4px; }
+  .nav-counter { font-size: 12px; color: var(--text-dim); font-variant-numeric: tabular-nums; margin-left: 8px; }
+  .nav-btn { background: none; border: 1px solid var(--border); color: var(--text-dim); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 14px; font-family: inherit; }
+  .nav-btn:hover { border-color: var(--amber); color: var(--text); }
+
+  /* Typography */
+  .slide-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 3px; color: var(--accent); margin-bottom: 16px; }
+  h1 { font-size: 64px; font-weight: 900; line-height: 1.05; letter-spacing: -2px; max-width: 900px; text-align: center; }
+  h2 { font-size: 48px; font-weight: 800; line-height: 1.1; letter-spacing: -1.5px; max-width: 800px; text-align: center; }
+  h3 { font-size: 32px; font-weight: 700; line-height: 1.2; letter-spacing: -0.5px; }
+  .subtitle { font-size: 22px; color: var(--text-dim); max-width: 700px; text-align: center; margin-top: 20px; line-height: 1.5; font-weight: 300; }
+  .highlight { color: var(--gold); }
+  .highlight-green { color: var(--green); }
+  .highlight-amber { color: var(--amber); }
+  .highlight-purple { color: var(--purple); }
+  .highlight-accent { color: var(--accent); }
+  .highlight-teal { color: var(--teal); }
+  .highlight-orange { color: var(--orange); }
+  .gradient-text { background: linear-gradient(135deg, var(--amber), var(--gold), var(--copper)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+
+  /* Before/After */
+  .comparison { display: grid; grid-template-columns: 1fr 60px 1fr; gap: 0; width: 100%; max-width: 1100px; align-items: start; margin-top: 40px; }
+  .comparison-col { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 32px; }
+  .comparison-col h3 { font-size: 18px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+  .comparison-arrow { display: flex; align-items: center; justify-content: center; font-size: 28px; color: var(--accent); align-self: center; }
+  .step-list { list-style: none; display: flex; flex-direction: column; gap: 12px; }
+  .step-list li { display: flex; align-items: flex-start; gap: 10px; font-size: 15px; line-height: 1.5; color: var(--text-dim); }
+  .step-list li .icon { font-size: 18px; flex-shrink: 0; margin-top: 1px; }
+
+  /* Pipeline */
+  .pipeline { display: flex; align-items: center; gap: 0; width: 100%; max-width: 1100px; margin-top: 40px; flex-wrap: wrap; justify-content: center; }
+  .pipe-node { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; text-align: center; min-width: 120px; }
+  .pipe-node .emoji { font-size: 28px; margin-bottom: 6px; }
+  .pipe-node .label { font-size: 13px; font-weight: 600; color: var(--text); }
+  .pipe-node .sublabel { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+  .pipe-arrow { color: var(--text-dim); font-size: 20px; padding: 0 6px; }
+  .pipe-node.active-node { border-color: var(--gold); box-shadow: 0 0 20px rgba(255, 209, 122, 0.15); }
+
+  /* Feature Grid */
+  .feature-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; width: 100%; max-width: 1000px; margin-top: 40px; }
+  .feature-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 28px; transition: border-color 0.2s; }
+  .feature-card:hover { border-color: var(--border-strong); }
+  .feature-card .emoji { font-size: 32px; margin-bottom: 12px; }
+  .feature-card h4 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .feature-card p { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+
+  /* Tiers */
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; width: 100%; max-width: 900px; margin-top: 40px; }
+  .tier-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; text-align: center; position: relative; overflow: hidden; }
+  /* POPULAR ribbon removed */
+  .tier-card .tier-name { font-size: 20px; font-weight: 700; margin-bottom: 8px; }
+  .tier-card .tier-desc { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 16px; }
+  .tier-card .tier-tag { font-size: 11px; font-weight: 600; padding: 4px 12px; border-radius: 20px; display: inline-block; }
+
+  /* Stats */
+  .stats-row { display: flex; gap: 60px; margin-top: 40px; }
+  .stat { text-align: center; }
+  .stat .value { font-size: 56px; font-weight: 900; letter-spacing: -2px; }
+  .stat .label { font-size: 14px; color: var(--text-dim); margin-top: 4px; font-weight: 500; }
+
+  /* Swipe Demo */
+  .swipe-demo { display: flex; align-items: center; gap: 40px; margin-top: 40px; max-width: 900px; }
+  .swipe-card-demo { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 340px; flex-shrink: 0; }
+  .swipe-card-demo .cat { font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 6px; background: rgba(245, 177, 74, 0.15); color: var(--gold); display: inline-block; margin-bottom: 12px; }
+  .swipe-card-demo h4 { font-size: 17px; font-weight: 700; margin-bottom: 8px; line-height: 1.3; }
+  .swipe-card-demo p { font-size: 13px; color: var(--text-dim); line-height: 1.5; margin-bottom: 16px; }
+  .swipe-card-demo .scores { display: flex; gap: 16px; font-size: 13px; margin-bottom: 16px; }
+  .swipe-card-demo .scores span { color: var(--text-dim); }
+  .swipe-card-demo .scores strong { color: var(--text); font-weight: 600; }
+  .swipe-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .swipe-actions span { border: none; border-radius: 8px; padding: 10px 0; font-size: 12px; font-weight: 600; text-align: center; }
+  .btn-pass { background: rgba(239, 68, 68, 0.15); color: var(--red); }
+  .btn-maybe { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+  .btn-yes { background: rgba(34, 197, 94, 0.15); color: var(--green); }
+  .btn-now { background: rgba(249, 115, 22, 0.15); color: var(--orange); }
+  .swipe-outcomes { display: flex; flex-direction: column; gap: 14px; }
+  .outcome { display: flex; align-items: flex-start; gap: 10px; font-size: 14px; line-height: 1.4; }
+  .outcome .tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px; flex-shrink: 0; min-width: 54px; text-align: center; }
+
+  /* Flow */
+  .flow-vertical { display: flex; flex-direction: column; gap: 0; max-width: 600px; width: 100%; margin-top: 40px; }
+  .flow-step { display: flex; align-items: flex-start; gap: 16px; position: relative; padding-bottom: 24px; }
+  .flow-step:last-child { padding-bottom: 0; }
+  .flow-step::before { content: ''; position: absolute; left: 19px; top: 40px; bottom: 0; width: 2px; background: var(--border); }
+  .flow-step:last-child::before { display: none; }
+  .flow-dot { width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; border: 2px solid var(--border); background: var(--bg); }
+  .flow-content h4 { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+  .flow-content p { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+  .flow-content code { color: var(--teal); font-size: 12px; }
+  .auto-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 4px; background: rgba(34, 197, 94, 0.15); color: var(--green); display: inline-block; margin-top: 4px; }
+  .human-tag { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; padding: 2px 8px; border-radius: 4px; background: rgba(245, 177, 74, 0.15); color: var(--gold); display: inline-block; margin-top: 4px; }
+
+  /* Use cases */
+  .use-cases { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; max-width: 900px; width: 100%; margin-top: 40px; }
+  .use-case { background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; }
+  .use-case .persona { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: var(--amber); margin-bottom: 8px; }
+  .use-case h4 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  .use-case p { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+
+  /* Glow */
+  .glow { position: absolute; width: 400px; height: 400px; border-radius: 50%; filter: blur(120px); opacity: 0.08; pointer-events: none; }
+  .glow-amber { background: var(--amber); }
+  .glow-accent { background: var(--accent); }
+  .glow-gold { background: var(--gold); }
+  .glow-teal { background: var(--teal); }
+  .glow-purple { background: var(--purple); }
+
+  /* Bar chart */
+  .bar-compare { width: 100%; max-width: 700px; margin-top: 40px; display: flex; flex-direction: column; gap: 20px; }
+  .bar-row { display: flex; flex-direction: column; gap: 6px; }
+  .bar-row .bar-label { font-size: 13px; color: var(--text-dim); font-weight: 500; }
+  .bar-track { height: 40px; background: var(--bg-card); border-radius: 8px; overflow: hidden; position: relative; }
+  .bar-fill { height: 100%; border-radius: 8px; display: flex; align-items: center; padding-left: 14px; font-size: 13px; font-weight: 700; color: white; }
+  .bar-fill.manual { background: linear-gradient(90deg, var(--red), var(--copper)); }
+  .bar-fill.autensa { background: linear-gradient(90deg, var(--amber), var(--gold)); }
+
+  .logo { position: fixed; top: 24px; left: 30px; z-index: 100; font-size: 16px; font-weight: 800; letter-spacing: -0.5px; color: var(--text); opacity: 0.4; }
+  .logo em { color: var(--amber); font-style: normal; }
+</style>
+</head>
+<body>
+
+<div class="logo">autensa<em>.</em></div>
+
+<!-- SLIDE 1: Title -->
+<div class="slide active">
+  <div class="glow glow-accent" style="top:-100px;right:-100px;"></div>
+  <div class="glow glow-amber" style="bottom:-100px;left:-100px;"></div>
+  <div class="slide-label">Introducing</div>
+  <h1><span class="gradient-text">Autensa v2</span></h1>
+  <p class="subtitle" style="margin-top:24px;font-size:26px;font-weight:400;">The Autonomous Product Engine</p>
+  <p class="subtitle" style="margin-top:16px;font-size:16px;">Your apps and websites improve themselves — 24/7 — while you sleep.</p>
+</div>
+
+<!-- SLIDE 2: The Problem -->
+<div class="slide">
+  <div class="slide-label">The Problem</div>
+  <h2>Improving your product<br>is a <span class="highlight-amber">full-time job</span></h2>
+  <p class="subtitle">Research competitors. Brainstorm features. Prioritize. Build. Test. Review. Deploy.<br>Repeat forever. Most teams can't keep up.</p>
+  <div class="stats-row">
+    <div class="stat"><div class="value highlight-amber">72%</div><div class="label">of feature ideas never get built</div></div>
+    <div class="stat"><div class="value highlight-amber">3–6 mo</div><div class="label">avg. time from idea to shipped</div></div>
+    <div class="stat"><div class="value highlight-amber">$0</div><div class="label">revenue from features that sit in a backlog</div></div>
+  </div>
+</div>
+
+<!-- SLIDE 3: Before vs After -->
+<div class="slide">
+  <div class="slide-label">The Gap</div>
+  <h2>What it looked like <span class="highlight">before</span></h2>
+  <div class="comparison">
+    <div class="comparison-col">
+      <h3>😩 Before Autensa</h3>
+      <ul class="step-list">
+        <li><span class="icon" style="color:var(--red)">⏱</span> Manually research competitors weekly</li>
+        <li><span class="icon" style="color:var(--red)">⏱</span> Brainstorm in docs that get forgotten</li>
+        <li><span class="icon" style="color:var(--red)">⏱</span> Prioritize in spreadsheets</li>
+        <li><span class="icon" style="color:var(--red)">⏱</span> Write specs from scratch each time</li>
+        <li><span class="icon" style="color:var(--red)">⏱</span> Assign to devs, wait for availability</li>
+        <li><span class="icon" style="color:var(--red)">⏱</span> Review PRs manually</li>
+        <li><span class="icon" style="color:var(--red)">⏱</span> Deploy and hope for the best</li>
+      </ul>
+    </div>
+    <div class="comparison-arrow">→</div>
+    <div class="comparison-col" style="border-color: var(--amber);">
+      <h3>🚀 With Autensa v2</h3>
+      <ul class="step-list">
+        <li><span class="icon" style="color:var(--green)">⚡</span> AI researches your market automatically</li>
+        <li><span class="icon" style="color:var(--green)">⚡</span> Generates ranked, scored feature ideas</li>
+        <li><span class="icon" style="color:var(--green)">⚡</span> You swipe Yes/No in seconds</li>
+        <li><span class="icon" style="color:var(--green)">⚡</span> Specs written automatically from research</li>
+        <li><span class="icon" style="color:var(--green)">⚡</span> Build agents implement immediately</li>
+        <li><span class="icon" style="color:var(--green)">⚡</span> Review agents verify quality + tests</li>
+        <li><span class="icon" style="color:var(--green)">⚡</span> PR created, ready to merge</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 4: The Full Pipeline -->
+<div class="slide">
+  <div class="slide-label">The Pipeline</div>
+  <h2>Idea to <span class="highlight-green">Pull Request</span><br>— fully automated</h2>
+  <div class="pipeline">
+    <div class="pipe-node"><div class="emoji">🔬</div><div class="label">Research</div><div class="sublabel">AI analyzes market</div></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-node"><div class="emoji">💡</div><div class="label">Ideation</div><div class="sublabel">Generates ideas</div></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-node active-node"><div class="emoji">👆</div><div class="label">Swipe</div><div class="sublabel">You decide</div></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-node"><div class="emoji">🔨</div><div class="label">Build</div><div class="sublabel">Agents code it</div></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-node"><div class="emoji">🧪</div><div class="label">Test</div><div class="sublabel">Automated QA</div></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-node"><div class="emoji">👀</div><div class="label">Review</div><div class="sublabel">AI code review</div></div>
+    <div class="pipe-arrow">→</div>
+    <div class="pipe-node" style="border-color:var(--green);"><div class="emoji">🚀</div><div class="label">PR</div><div class="sublabel">Ready to merge</div></div>
+  </div>
+  <p class="subtitle" style="margin-top:30px;font-size:15px;">The only manual step is the swipe. Everything else runs on autopilot.</p>
+</div>
+
+<!-- SLIDE 5: Research -->
+<div class="slide">
+  <div class="glow glow-amber" style="top:-50px;left:20%;"></div>
+  <div class="slide-label">Step 1</div>
+  <h2>🔬 Autonomous <span class="highlight">Research</span></h2>
+  <p class="subtitle">Point Autensa at your product. It reads your codebase, scans your live site, and researches your market — competitors, user patterns, conversion strategies, SEO gaps, tech opportunities.</p>
+  <div class="feature-grid" style="grid-template-columns: repeat(2, 1fr); max-width: 700px;">
+    <div class="feature-card"><div class="emoji">🏪</div><h4>Competitive Analysis</h4><p>Discovers what competitors are doing, what's working, and where they're weak.</p></div>
+    <div class="feature-card"><div class="emoji">📊</div><h4>Market Signals</h4><p>Identifies conversion patterns, pricing opportunities, and growth channels.</p></div>
+    <div class="feature-card"><div class="emoji">🔍</div><h4>Technical Gaps</h4><p>Analyzes your stack and finds performance, UX, and architecture improvements.</p></div>
+    <div class="feature-card"><div class="emoji">🎯</div><h4>User Intent</h4><p>Maps what users actually want based on search data and behavior patterns.</p></div>
+  </div>
+  <p class="subtitle" style="font-size:13px;margin-top:20px;color:var(--green);">Runs daily on schedule. No manual work required.</p>
+</div>
+
+<!-- SLIDE 6: Ideation -->
+<div class="slide">
+  <div class="slide-label">Step 2</div>
+  <h2>💡 AI-Powered <span class="highlight-purple">Ideation</span></h2>
+  <p class="subtitle">Research feeds into ideation agents that generate concrete, actionable feature ideas — each scored for impact, feasibility, and effort.</p>
+  <div class="feature-grid" style="grid-template-columns: repeat(3, 1fr); max-width: 900px;">
+    <div class="feature-card"><div class="emoji">🎯</div><h4>Impact Scored</h4><p>Every idea ranked by potential revenue impact and user value.</p></div>
+    <div class="feature-card"><div class="emoji">⚙️</div><h4>Technically Scoped</h4><p>Includes approach, complexity estimate, and implementation notes.</p></div>
+    <div class="feature-card"><div class="emoji">📚</div><h4>Research-Backed</h4><p>Every idea links to the research that inspired it. No guessing.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 7: Swipe -->
+<div class="slide">
+  <div class="slide-label">Step 3 — Your Only Manual Step</div>
+  <h2>👆 Swipe to <span class="highlight-green">Decide</span></h2>
+  <div class="swipe-demo">
+    <div class="swipe-card-demo">
+      <div class="cat">growth</div>
+      <h4>AI-Powered Grant Matching Engine</h4>
+      <p>Semantic matching between user profiles and grant opportunities using vector embeddings.</p>
+      <div class="scores"><span>Impact: <strong>9.2</strong></span><span>Feasibility: <strong>7.5</strong></span><span>Size: <strong style="color:var(--orange)">L</strong></span></div>
+      <div class="swipe-actions">
+        <span class="btn-pass">Pass</span>
+        <span class="btn-maybe">Maybe</span>
+        <span class="btn-yes">Yes</span>
+        <span class="btn-now">Now!</span>
+      </div>
+    </div>
+    <div class="swipe-outcomes">
+      <div class="outcome"><span class="tag" style="background:rgba(239,68,68,0.15);color:var(--red);">Pass</span><span style="color:var(--text-dim)">Rejected. The system learns from your preferences over time.</span></div>
+      <div class="outcome"><span class="tag" style="background:rgba(245,158,11,0.15);color:var(--amber);">Maybe</span><span style="color:var(--text-dim)">Saved for re-evaluation. Resurfaces in 1 week with new context.</span></div>
+      <div class="outcome"><span class="tag" style="background:rgba(34,197,94,0.15);color:var(--green);">Yes</span><span style="color:var(--text-dim)">Task created → Build agent starts coding → PR created automatically.</span></div>
+      <div class="outcome"><span class="tag" style="background:rgba(249,115,22,0.15);color:var(--orange);">Now!</span><span style="color:var(--text-dim)">Urgent dispatch. Agent starts building immediately. Priority queue.</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 8: Build to PR -->
+<div class="slide">
+  <div class="glow glow-purple" style="bottom:-100px;right:10%;"></div>
+  <div class="slide-label">Steps 4–7</div>
+  <h2>From Task to <span class="highlight-green">Pull Request</span></h2>
+  <div class="flow-vertical">
+    <div class="flow-step">
+      <div class="flow-dot">🔨</div>
+      <div class="flow-content"><h4>Build Agent clones repo, creates branch</h4><p>Branch: <code>autopilot/ai-grant-matching-engine</code> — implements the feature with full context from research + idea spec.</p><span class="auto-tag">Automated</span></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-dot">🧪</div>
+      <div class="flow-content"><h4>Test Agent runs the project test suite</h4><p>Validates the implementation against existing tests. If tests fail, bounces back to build for auto-fix.</p><span class="auto-tag">Automated</span></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-dot">👀</div>
+      <div class="flow-content"><h4>Review Agent inspects the diff</h4><p>Code quality, security, best practices, breaking changes. Same standards a senior engineer would enforce.</p><span class="auto-tag">Automated</span></div>
+    </div>
+    <div class="flow-step">
+      <div class="flow-dot" style="border-color:var(--green);">🚀</div>
+      <div class="flow-content"><h4>Pull Request created on GitHub</h4><p>Full context: what was built, why, research backing, risks, technical approach. Links back to the original idea.</p><span class="human-tag">You choose: Review & merge or auto-merge</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 9: Safety Tiers -->
+<div class="slide">
+  <div class="slide-label">Your Control</div>
+  <h2>Choose your <span class="highlight-accent">automation level</span></h2>
+  <p class="subtitle">You decide how much control to keep. Change anytime per product.</p>
+  <div class="tiers">
+    <div class="tier-card">
+      <div style="font-size:32px;margin-bottom:12px;">🛡️</div>
+      <div class="tier-name">Supervised</div>
+      <div class="tier-desc">PRs created automatically. You review and merge manually. Full control.</div>
+      <div class="tier-tag" style="background:rgba(245,177,74,0.15);color:var(--amber);">Default for production apps</div>
+    </div>
+    <div class="tier-card">
+      <div style="font-size:32px;margin-bottom:12px;">⚡</div>
+      <div class="tier-name">Semi-Auto</div>
+      <div class="tier-desc">PRs auto-merge when CI passes and review agent approves. You monitor.</div>
+      <div class="tier-tag" style="background:rgba(91,184,169,0.15);color:var(--teal);">Best for staging & trusted repos</div>
+    </div>
+    <div class="tier-card">
+      <div style="font-size:32px;margin-bottom:12px;">🤖</div>
+      <div class="tier-name">Full Auto</div>
+      <div class="tier-desc">Everything automated end-to-end. From idea to deployed feature. Hands-off.</div>
+      <div class="tier-tag" style="background:rgba(34,197,94,0.15);color:var(--green);">Side projects & MVPs</div>
+    </div>
+  </div>
+</div>
+
+<!-- SLIDE 10: Operator Chat -->
+<div class="slide">
+  <div class="glow glow-amber" style="top:30%;right:10%;"></div>
+  <div class="slide-label">New in v2</div>
+  <h2>💬 Talk to your <span class="highlight">agents</span> mid-build</h2>
+  <p class="subtitle">Don't wait for a PR to give feedback. Send notes and direct messages to agents while they're working — they adjust in real-time.<br><span style="font-size:13px;color:var(--text-dim);font-style:italic;">Hat tip to Mike De'Shazer for the idea.</span></p>
+  <div class="comparison" style="grid-template-columns: 1fr 1fr; gap: 20px; max-width: 900px;">
+    <div class="comparison-col">
+      <h3 style="font-size:16px;">📌 Queued Notes</h3>
+      <ul class="step-list">
+        <li><span class="icon" style="color:var(--green)">📝</span> Add context while agent is building: "use the existing auth middleware"</li>
+        <li><span class="icon" style="color:var(--green)">📎</span> Notes attach to the next dispatch or checkpoint automatically</li>
+        <li><span class="icon" style="color:var(--green)">🔔</span> Agent receives them when it checks in — no interruption</li>
+      </ul>
+    </div>
+    <div class="comparison-col" style="border-color:var(--gold);">
+      <h3 style="font-size:16px;">⚡ Direct Messages</h3>
+      <ul class="step-list">
+        <li><span class="icon" style="color:var(--green)">💬</span> Send live: "skip the email notifications for now"</li>
+        <li><span class="icon" style="color:var(--green)">🔄</span> Delivered immediately to the agent's active session</li>
+        <li><span class="icon" style="color:var(--green)">✅</span> Agent incorporates changes into current work</li>
+      </ul>
+    </div>
+  </div>
+  <p class="subtitle" style="font-size:14px;margin-top:20px;">Full chat history preserved per task. Every message, every note, every response.</p>
+</div>
+
+<!-- SLIDE 11: Convoy Mode -->
+<div class="slide">
+  <div class="slide-label">New in v2</div>
+  <h2>🚛 <span class="highlight-purple">Convoy Mode</span> — parallel execution</h2>
+  <p class="subtitle">Big features get broken into subtasks. Multiple agents work in parallel with dependency-aware scheduling, health monitoring, and crash recovery.</p>
+  <div class="feature-grid" style="grid-template-columns: repeat(3, 1fr); max-width: 900px;">
+    <div class="feature-card"><div class="emoji">🔀</div><h4>Parallel Subtasks</h4><p>Split complex work into independent pieces. 3-5 agents working simultaneously on one feature.</p></div>
+    <div class="feature-card"><div class="emoji">📊</div><h4>Dependency Graph</h4><p>Visual DAG of subtask dependencies. Agents wait for prerequisites automatically.</p></div>
+    <div class="feature-card"><div class="emoji">💚</div><h4>Health Monitoring</h4><p>Detects stalled, stuck, or zombie agents. Auto-nudges or reassigns when agents go dark.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 12: More v2 Features -->
+<div class="slide">
+  <div class="slide-label">New in v2</div>
+  <h2>Everything else we <span class="highlight-green">shipped</span></h2>
+  <div class="feature-grid" style="grid-template-columns: repeat(3, 1fr); max-width: 1000px;">
+    <div class="feature-card"><div class="emoji">🧠</div><h4>Knowledge Base</h4><p>A learner agent captures lessons from every build cycle. Knowledge feeds into future dispatches — agents don't repeat mistakes.</p></div>
+    <div class="feature-card"><div class="emoji">💰</div><h4>Cost Tracking & Caps</h4><p>Per-task, per-product, daily, monthly spend tracking. Set budget caps that pause auto-dispatch when exceeded.</p></div>
+    <div class="feature-card"><div class="emoji">📋</div><h4>Planning Phase</h4><p>Before building, agents ask clarifying questions, generate specs, and get approval. No blind coding.</p></div>
+    <div class="feature-card"><div class="emoji">🔄</div><h4>Crash Recovery</h4><p>Checkpoints save agent progress. If a session dies, work resumes from the last checkpoint — not from scratch.</p></div>
+    <div class="feature-card"><div class="emoji">📡</div><h4>Live Activity Feed</h4><p>Real-time SSE stream of everything happening: research phases, build progress, test results, PR creation.</p></div>
+    <div class="feature-card"><div class="emoji">🎯</div><h4>Preference Learning</h4><p>Every swipe trains the model. Category weights, complexity prefs, tag patterns — ideas get sharper over time.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 13: Architecture Inspiration -->
+<div class="slide">
+  <div class="glow glow-purple" style="top:-80px;left:20%;"></div>
+  <div class="slide-label">Under the Hood</div>
+  <h2>Built on <span class="highlight-purple">proven patterns</span></h2>
+  <p class="subtitle">Autensa's research and ideation engine is inspired by Andrej Karpathy's <strong style="color:var(--text);">AutoResearch</strong> architecture — the program-guided autonomous research loop.</p>
+  <div class="feature-grid" style="grid-template-columns: repeat(2, 1fr); max-width: 800px;">
+    <div class="feature-card">
+      <div class="emoji">📄</div>
+      <h4>Product Program</h4>
+      <p>Like Karpathy's <code style="color:var(--teal);font-size:12px;">program.md</code> — a living document that instructs research and ideation agents. Defines what to look for, what matters, and what to ignore.</p>
+    </div>
+    <div class="feature-card">
+      <div class="emoji">🔄</div>
+      <h4>Iterative Refinement</h4>
+      <p>Research runs inform the next cycle. The program evolves as swipe data accumulates. Agents get sharper with every iteration — not just pattern-matching, but learning your taste.</p>
+    </div>
+    <div class="feature-card">
+      <div class="emoji">🤖</div>
+      <h4>Autonomous Execution</h4>
+      <p>Agents don't wait for instructions. They follow the program, execute research passes, generate ideas, and loop — exactly like AutoResearch runs experiments autonomously.</p>
+    </div>
+    <div class="feature-card">
+      <div class="emoji">🎛️</div>
+      <h4>Human-in-the-Loop</h4>
+      <p>You steer the program, not every action. Swipe decisions become training signal. The system learns what you approve and calibrates — Karpathy's insight applied to product development.</p>
+    </div>
+  </div>
+  <p class="subtitle" style="font-size:14px;margin-top:24px;color:var(--text-dim);">AutoResearch → autonomous science. Autensa → autonomous product improvement. Same architecture, different domain.</p>
+</div>
+
+<!-- SLIDE 14: Who This Is For -->
+<div class="slide">
+  <div class="slide-label">Use Cases</div>
+  <h2>Built for <span class="highlight">builders</span></h2>
+  <div class="use-cases">
+    <div class="use-case"><div class="persona">Solo Developer</div><h4>"I can't research AND build AND ship"</h4><p>Autensa handles the research and ideation loop. You just swipe and the agents build. Your side project improves while you sleep.</p></div>
+    <div class="use-case"><div class="persona">Startup Founder</div><h4>"We need to iterate faster than competitors"</h4><p>Ship improvements daily instead of monthly. Autensa surfaces what competitors are doing and builds your response automatically.</p></div>
+    <div class="use-case"><div class="persona">Agency / Freelancer</div><h4>"I manage 10 client sites, I can't improve them all"</h4><p>Add each client site as a product. Autensa researches and suggests improvements for all of them in parallel.</p></div>
+    <div class="use-case"><div class="persona">Enterprise Team</div><h4>"Our backlog is 400 tickets deep"</h4><p>Autensa doesn't replace your backlog — it attacks it. Prioritized, researched, and built by agents while your team focuses on what matters most.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 15: The Numbers -->
+<div class="slide">
+  <div class="glow glow-accent" style="top:20%;left:30%;"></div>
+  <div class="slide-label">The Impact</div>
+  <h2>What <span class="gradient-text">continuous improvement</span> looks like</h2>
+  <div class="bar-compare">
+    <div class="bar-row">
+      <div class="bar-label">Ideas researched per week</div>
+      <div class="bar-track"><div class="bar-fill manual" style="width:8%;">2–3</div></div>
+      <div class="bar-track" style="margin-top:6px;"><div class="bar-fill autensa" style="width:85%;">50–100+</div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Features shipped per month</div>
+      <div class="bar-track"><div class="bar-fill manual" style="width:12%;">1–2</div></div>
+      <div class="bar-track" style="margin-top:6px;"><div class="bar-fill autensa" style="width:70%;">10–30+</div></div>
+    </div>
+    <div class="bar-row">
+      <div class="bar-label">Time from idea to PR</div>
+      <div class="bar-track"><div class="bar-fill manual" style="width:75%;">Weeks to months</div></div>
+      <div class="bar-track" style="margin-top:6px;"><div class="bar-fill autensa" style="width:15%;">Minutes to hours</div></div>
+    </div>
+  </div>
+  <p style="font-size:12px;color:var(--text-dim);margin-top:16px;">
+    <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:linear-gradient(90deg,var(--red),var(--copper));vertical-align:middle;margin-right:6px;"></span> Manual
+    <span style="display:inline-block;width:12px;height:12px;border-radius:3px;background:linear-gradient(90deg,var(--amber),var(--gold));vertical-align:middle;margin-left:16px;margin-right:6px;"></span> Autensa v2
+  </p>
+</div>
+
+<!-- SLIDE 16: Open Source -->
+<div class="slide">
+  <div class="slide-label">Open Source</div>
+  <h2>Built for the <span class="highlight">OpenClaw</span> ecosystem</h2>
+  <p class="subtitle">Autensa is open source. It runs on your machine, uses your API keys, and connects to your repos. No vendor lock-in. No data leaves your setup.</p>
+  <div class="feature-grid" style="grid-template-columns: repeat(3, 1fr); max-width: 900px; margin-top: 30px;">
+    <div class="feature-card"><div class="emoji">🔐</div><h4>Your Data</h4><p>Runs locally. Your code, your ideas, your research — nothing sent to third parties.</p></div>
+    <div class="feature-card"><div class="emoji">🔌</div><h4>Pluggable Agents</h4><p>Use Claude Code, Codex, or any OpenClaw-compatible agent. Configure per product.</p></div>
+    <div class="feature-card"><div class="emoji">🌐</div><h4>Any Stack</h4><p>Next.js, React, Python, Rails — if it has a repo, Autensa can improve it.</p></div>
+  </div>
+</div>
+
+<!-- SLIDE 17: Closing -->
+<div class="slide">
+  <div class="glow glow-accent" style="top:-50px;left:40%;width:500px;height:500px;opacity:0.1;"></div>
+  <div class="glow glow-amber" style="bottom:-50px;right:30%;width:400px;height:400px;opacity:0.08;"></div>
+  <h1 style="font-size:54px;">Stop managing a backlog.<br><span class="gradient-text">Start shipping on autopilot.</span></h1>
+  <p class="subtitle" style="margin-top:24px;font-size:18px;">Autensa v2 — available now for OpenClaw users.</p>
+  <div style="margin-top:40px;display:flex;gap:16px;">
+    <div style="background:linear-gradient(135deg,var(--amber),var(--gold));color:#0a0a0d;padding:14px 32px;border-radius:10px;font-weight:700;font-size:15px;">github.com/openclaw/autensa</div>
+  </div>
+</div>
+
+<!-- Navigation -->
+<div class="nav" id="nav">
+  <button class="nav-btn" id="prevBtn">‹</button>
+  <div id="dots"></div>
+  <button class="nav-btn" id="nextBtn">›</button>
+  <div class="nav-counter" id="counter">1 / 17</div>
+</div>
+
+<script src="slides.js"></script>
+
+</body>
+</html>

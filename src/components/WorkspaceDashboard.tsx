@@ -1,7 +1,7 @@
 'use client';
 
 import {useState, useEffect} from 'react';
-import {Plus, ArrowRight, Folder, Users, CheckSquare, Trash2, AlertTriangle, Activity} from 'lucide-react';
+import {Plus, ArrowRight, Folder, Users, CheckSquare, Trash2, AlertTriangle, Activity, Rocket} from 'lucide-react';
 import {useLocale, useTranslations} from 'next-intl';
 import {Link, usePathname, useRouter} from '@/i18n/navigation'; // 带语言前缀的导航，保证活动看板等页与当前语言一致 / Locale-aware nav so activity dashboard respects current locale
 import type {WorkspaceStats} from '@/lib/types';
@@ -100,6 +100,13 @@ export function WorkspaceDashboard() {
                   </div>
                 )}
               </div>
+              <Link
+                href="/autopilot"
+                className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm"
+              >
+                <Rocket className="w-4 h-4" />
+                Autopilot
+              </Link>
               <Link
                 href={workspaces.length > 0 ? `/workspace/${workspaces[0].slug}/activity` : '/workspace/default/activity'}
                 className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm"
@@ -253,6 +260,12 @@ function WorkspaceCard({workspace, onDelete}: {workspace: WorkspaceStats; onDele
             <Users className="w-4 h-4" />
             <span>{workspace.agentCount} {t('cardAgentsLabel')}</span>
           </div>
+          {(workspace.taskCounts.convoy_active || 0) > 0 && (
+            <div className="flex items-center gap-1 text-cyan-400">
+              <span>🚚</span>
+              <span>{workspace.taskCounts.convoy_active} convoy{workspace.taskCounts.convoy_active > 1 ? 's' : ''}</span>
+            </div>
+          )}
         </div>
       </div>
     </Link>

@@ -126,6 +126,12 @@ function EventItem({ event, dateLocale }: { event: Event; dateLocale?: Locale })
         return '🔔';
       case 'system':
         return '⚙️';
+      case 'task_dispatched':
+        return '🚀';
+      case 'convoy_created':
+        return '🚚';
+      case 'convoy_completed':
+        return '🏁';
       default:
         return '📌';
     }

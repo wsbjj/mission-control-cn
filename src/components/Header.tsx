@@ -2,7 +2,7 @@
 
 import {useState, useEffect} from 'react';
 import {Link, usePathname, useRouter} from '@/i18n/navigation'; // 使用共享导航工具 / Shared navigation helpers
-import {Zap, Settings, ChevronLeft, LayoutGrid} from 'lucide-react';
+import {Zap, Settings, ChevronLeft, LayoutGrid, Rocket} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import {format} from 'date-fns';
 import {useLocale, useTranslations} from 'next-intl'; // 国际化文案与当前语言 hook / Hooks for messages and current locale
@@ -80,6 +80,9 @@ export function Header({workspace, isPortrait = true}: HeaderProps) {
               </div>
             </div>
 
+            <Link href="/autopilot" className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary" title="Autopilot">
+              <Rocket className="w-5 h-5" />
+            </Link>
             <button onClick={() => router.push('/settings')} className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary shrink-0" title="Settings">
               <Settings className="w-5 h-5" />
             </button>
@@ -214,6 +217,9 @@ export function Header({workspace, isPortrait = true}: HeaderProps) {
                 </div>
               )}
             </div>
+            <Link href="/autopilot" className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary" title="Autopilot">
+              <Rocket className="w-5 h-5" />
+            </Link>
             <button onClick={() => router.push('/settings')} className="min-h-11 min-w-11 p-2 hover:bg-mc-bg-tertiary rounded text-mc-text-secondary" title="Settings">
               <Settings className="w-5 h-5" />
             </button>

@@ -4,7 +4,7 @@ import { create } from 'zustand';
 import { debug } from './debug';
 import type { Agent, Task, Conversation, Message, Event, TaskStatus, OpenClawSession } from './types';
 
-const ACTIVE_TASK_STATUSES = new Set<TaskStatus>(['assigned', 'in_progress', 'testing', 'verification']);
+const ACTIVE_TASK_STATUSES = new Set<TaskStatus>(['assigned', 'in_progress', 'convoy_active', 'testing', 'verification']);
 
 function reconcileAgentStatuses(agents: Agent[], tasks: Task[]): Agent[] {
   const activeAgentIds = new Set(

@@ -1,0 +1,112 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Plus, Rocket, ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import type { Product } from '@/lib/types';
+
+export default function AutopilotPage() {
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/products');
+        if (res.ok) setProducts(await res.json());
+      } catch (error) {
+        console.error('Failed to load products:', error);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-mc-bg flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-4xl mb-4 animate-pulse">🚀</div>
+          <p className="text-mc-text-secondary">Loading autopilot...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-mc-bg">
+      <header className="border-b border-mc-border bg-mc-bg-secondary">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Rocket className="w-6 h-6 text-mc-accent-cyan" />
+              <h1 className="text-xl font-bold text-mc-text">Product Autopilot</h1>
+            </div>
+            <div className="flex items-center gap-2">
+              <Link href="/" className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm">
+                Workspaces
+              </Link>
+              <Link
+                href="/autopilot/new"
+                className="min-h-11 px-4 rounded-lg bg-mc-accent text-white hover:bg-mc-accent/90 flex items-center gap-2 text-sm font-medium"
+              >
+                <Plus className="w-4 h-4" />
+                New Product
+              </Link>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
+        {products.length === 0 ? (
+          <div className="text-center py-20">
+            <div className="text-6xl mb-6">🚀</div>
+            <h2 className="text-2xl font-bold text-mc-text mb-3">No products yet</h2>
+            <p className="text-mc-text-secondary mb-8 max-w-md mx-auto">
+              Create your first product to start the autonomous development loop.
+              Agents will research, ideate, and you swipe to decide what gets built.
+            </p>
+            <Link
+              href="/autopilot/new"
+              className="inline-flex items-center gap-2 px-6 py-3 bg-mc-accent text-white rounded-lg hover:bg-mc-accent/90 font-medium"
+            >
+              <Plus className="w-5 h-5" />
+              Create First Product
+            </Link>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {products.map(product => (
+              <Link
+                key={product.id}
+                href={`/autopilot/${product.id}`}
+                className="group block bg-mc-bg-secondary border border-mc-border rounded-xl p-5 hover:border-mc-accent/50 transition-colors"
+              >
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl">{product.icon}</span>
+                    <div>
+                      <h3 className="font-semibold text-mc-text group-hover:text-mc-accent transition-colors">{product.name}</h3>
+                      <span className={`text-xs px-2 py-0.5 rounded ${
+                        product.status === 'active' ? 'bg-green-500/20 text-green-400' :
+                        product.status === 'paused' ? 'bg-amber-500/20 text-amber-400' :
+                        'bg-mc-bg-tertiary text-mc-text-secondary'
+                      }`}>
+                        {product.status}
+                      </span>
+                    </div>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-mc-text-secondary group-hover:text-mc-accent transition-colors" />
+                </div>
+                {product.description && (
+                  <p className="text-sm text-mc-text-secondary line-clamp-2">{product.description}</p>
+                )}
+              </Link>
+            ))}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}

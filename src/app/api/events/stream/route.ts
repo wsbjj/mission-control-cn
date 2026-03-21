@@ -4,9 +4,14 @@
  */
 
 import { NextRequest } from 'next/server';
-import { registerClient, unregisterClient } from '@/lib/events';
+import { registerClient, unregisterClient, getActiveConnectionCount } from '@/lib/events';
+import { runHealthCheckCycle } from '@/lib/agent-health';
+import { attachChatListener } from '@/lib/chat-listener';
 
 export const dynamic = 'force-dynamic';
+
+// Attach the chat listener on first SSE connection (idempotent)
+attachChatListener();
 
 export async function GET(request: NextRequest) {
   const encoder = new TextEncoder();
@@ -31,9 +36,21 @@ export async function GET(request: NextRequest) {
         }
       }, 30000);
 
+      // Agent health check every 2 minutes (only from the first connected client to avoid duplicates)
+      const healthCheckInterval = setInterval(() => {
+        try {
+          if (getActiveConnectionCount() > 0) {
+            runHealthCheckCycle();
+          }
+        } catch (error) {
+          console.error('[SSE] Health check cycle error:', error);
+        }
+      }, 120000);
+
       // Handle client disconnect
       request.signal.addEventListener('abort', () => {
         clearInterval(keepAliveInterval);
+        clearInterval(healthCheckInterval);
         unregisterClient(controller);
         try {
           controller.close();

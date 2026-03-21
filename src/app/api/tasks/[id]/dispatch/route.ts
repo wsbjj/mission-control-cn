@@ -8,7 +8,11 @@ import { getRelevantKnowledge, formatKnowledgeForDispatch } from '@/lib/learner'
 import { getTaskWorkflow } from '@/lib/workflow-engine';
 import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
 import { pickDynamicAgent } from '@/lib/task-governance';
-import type { Task, Agent, OpenClawSession, WorkflowStage, TaskImage } from '@/lib/types';
+import { buildCheckpointContext } from '@/lib/checkpoint';
+import { formatMailForDispatch } from '@/lib/mailbox';
+import { getPendingNotesForDispatch } from '@/lib/task-notes';
+import { createTaskWorkspace, determineIsolationStrategy } from '@/lib/workspace-isolation';
+import type { Task, Agent, Product, OpenClawSession, WorkflowStage, TaskImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
 interface RouteParams {
@@ -156,6 +160,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
+    // Cost cap warning check
+    let costCapWarning: string | undefined;
+    if (task.product_id) {
+      const product = queryOne<Product>('SELECT * FROM products WHERE id = ?', [task.product_id]);
+      if (product?.cost_cap_monthly) {
+        const monthStart = new Date();
+        monthStart.setDate(1);
+        monthStart.setHours(0, 0, 0, 0);
+        const monthlySpend = queryOne<{ total: number }>(
+          `SELECT COALESCE(SUM(cost_usd), 0) as total FROM cost_events
+           WHERE product_id = ? AND created_at >= ?`,
+          [task.product_id, monthStart.toISOString()]
+        );
+        if (monthlySpend && monthlySpend.total >= product.cost_cap_monthly) {
+          costCapWarning = `Monthly cost cap reached: $${monthlySpend.total.toFixed(2)}/$${product.cost_cap_monthly.toFixed(2)}`;
+          console.warn(`[Dispatch] ${costCapWarning} for product ${product.name}`);
+        }
+      }
+    }
+
     // Build task message for agent
     const priorityEmoji = {
       low: '🔵',
@@ -164,11 +188,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       urgent: '🔴'
     }[task.priority] || '⚪';
 
-    // Get project path for deliverables
+    // Get project path for deliverables — with workspace isolation if needed
     const projectsPath = getProjectsPath();
     const projectDir = task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-    const taskProjectDir = `${projectsPath}/${projectDir}`;
+    let taskProjectDir = `${projectsPath}/${projectDir}`;
     const missionControlUrl = getMissionControlUrl();
+
+    // Create isolated workspace if parallel builds are possible
+    // Only for builder dispatches (assigned/in_progress), not tester/reviewer
+    let workspaceIsolated = false;
+    let workspaceBranchName: string | undefined;
+    let workspacePort: number | undefined;
+    const isolationStrategy = determineIsolationStrategy(task as Task);
+    const isBuilderDispatch = task.status === 'assigned' || task.status === 'in_progress' || task.status === 'inbox';
+    if (isolationStrategy && isBuilderDispatch) {
+      try {
+        const workspace = await createTaskWorkspace(task as Task);
+        taskProjectDir = workspace.path;
+        workspaceIsolated = true;
+        workspaceBranchName = workspace.branch;
+        workspacePort = workspace.port;
+        console.log(`[Dispatch] Created ${workspace.strategy} workspace for task ${task.id}: ${workspace.path}`);
+      } catch (err) {
+        console.warn(`[Dispatch] Workspace isolation failed, using default path:`, (err as Error).message);
+      }
+    }
 
     // Parse planning_spec and planning_agents if present (stored as JSON text on the task row)
     const rawTask = task as Task & { assigned_agent_name?: string; workspace_id: string; planning_spec?: string; planning_agents?: string };
@@ -314,6 +358,47 @@ Reply with: \`VERIFY_PASS: [summary]\` or \`VERIFY_FAIL: [what failed]\``;
       }
     }
 
+    // Build repo/PR section for builder agents when task has a repo
+    let repoSection = '';
+    if ((task as Task & { repo_url?: string }).repo_url && isBuilder) {
+      const repoUrl = (task as Task & { repo_url?: string }).repo_url!;
+      const repoBranch = (task as Task & { repo_branch?: string }).repo_branch || 'main';
+      const branchName = `autopilot/${task.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 50)}`;
+
+      repoSection = `
+---
+**\u{1F517} REPOSITORY:**
+- **Repo:** ${repoUrl}
+- **Base branch:** ${repoBranch}
+- **Feature branch:** ${branchName}
+
+**GIT WORKFLOW:**
+1. First, verify you have git access: run \`git ls-remote ${repoUrl}\`
+   - If this fails, report the error immediately via:
+     PATCH ${missionControlUrl}/api/tasks/${task.id}
+     Body: {"status_reason": "Git auth not configured: [error message]"}
+     Then STOP — do not proceed without repo access.
+2. Clone the repo (or use existing local copy)
+3. Create branch \`${branchName}\` from \`${repoBranch}\`
+4. Implement the feature
+5. Commit with clear messages (reference task: ${task.id})
+6. Push branch and create a Pull Request
+
+**PR REQUIREMENTS:**
+- Title: "\u{1F916} Autopilot: ${task.title}"
+- Body must include:
+  - What was built and why
+  - Research backing (from the idea)
+  - Technical approach taken
+  - Any risks or trade-offs
+  - Task ID: ${task.id}
+- Target branch: ${repoBranch}
+- After creating PR, report the PR URL:
+  PATCH ${missionControlUrl}/api/tasks/${task.id}
+  Body: {"pr_url": "<github PR url>", "pr_status": "open"}
+`;
+    }
+
     const roleLabel = currentStage?.label || 'Task';
     const taskMessage = `${priorityEmoji} **${isBuilder ? 'NEW TASK ASSIGNED' : `${roleLabel.toUpperCase()} STAGE — ${task.title}`}**
 
@@ -322,11 +407,18 @@ ${task.description ? `**Description:** ${task.description}\n` : ''}
 **Priority:** ${task.priority.toUpperCase()}
 ${task.due_date ? `**Due:** ${task.due_date}\n` : ''}
 **Task ID:** ${task.id}
-${planningSpecSection}${agentInstructionsSection}${knowledgeSection}${imagesSection}
-${isBuilder ? `**OUTPUT DIRECTORY:** ${taskProjectDir}\nCreate this directory and save all deliverables there.\n` : `**OUTPUT DIRECTORY:** ${taskProjectDir}\n`}
+${planningSpecSection}${agentInstructionsSection}${knowledgeSection}${imagesSection}${buildCheckpointContext(task.id) || ''}${formatMailForDispatch(agent.id) || ''}${repoSection}
+${isBuilder ? (workspaceIsolated
+  ? `**\u{1F512} ISOLATED WORKSPACE:** ${taskProjectDir}\n- **Port:** ${workspacePort || 'default'} (use this for dev server, NOT the default)\n${workspaceBranchName ? `- **Branch:** ${workspaceBranchName}\n` : ''}- **IMPORTANT:** Do NOT modify files outside this workspace directory. Other agents may be working on the same project in parallel. All your work must stay within: ${taskProjectDir}\nCreate this directory if needed and save all deliverables there.\n`
+  : `**OUTPUT DIRECTORY:** ${taskProjectDir}\nCreate this directory and save all deliverables there.\n`)
+: `**OUTPUT DIRECTORY:** ${taskProjectDir}\n`}
 ${completionInstructions}
 
 If you need help or clarification, ask the orchestrator.`;
+
+    // Inject any pending operator notes (queued via /btw chat)
+    const { formatted: pendingNotes } = getPendingNotesForDispatch(id);
+    const finalMessage = pendingNotes ? taskMessage + pendingNotes : taskMessage;
 
     // Send message to agent's session using chat.send
     try {
@@ -336,7 +428,7 @@ If you need help or clarification, ask the orchestrator.`;
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
       await client.call('chat.send', {
         sessionKey,
-        message: taskMessage,
+        message: finalMessage,
         idempotencyKey: `dispatch-${task.id}-${Date.now()}`
       });
 
@@ -385,7 +477,8 @@ If you need help or clarification, ask the orchestrator.`;
         task_id: task.id,
         agent_id: agent.id,
         session_id: session.openclaw_session_id,
-        message: 'Task dispatched to agent'
+        message: 'Task dispatched to agent',
+        ...(costCapWarning ? { cost_cap_warning: costCapWarning } : {}),
       });
     } catch (err) {
       console.error('Failed to send message to agent:', err);

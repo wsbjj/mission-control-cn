@@ -1,9 +1,158 @@
 # Changelog
 
-All notable changes to Mission Control will be documented in this file.
+All notable changes to Autensa (formerly Mission Control) will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [2.0.0] - 2026-03-20
+
+### 🚀 Product Autopilot — The World's First Autonomous Product Engine
+
+Autensa v2 transforms from a task orchestration dashboard into the world's first autonomous product improvement engine. Point it at any product and it runs a continuous research → ideation → build loop.
+
+### Added
+
+#### Product Autopilot Pipeline
+- **Autonomous Research Engine** — AI agents analyze your codebase, scan your live site, and research your market automatically. Discovers competitors, user intent, conversion patterns, SEO gaps, and technical opportunities. Configurable schedules (daily, weekly, custom cron, or on-demand). Research results stored with full source attribution.
+- **AI-Powered Ideation** — Research feeds into ideation agents that generate concrete, scored feature ideas. Each idea includes impact score (1–10), feasibility score (1–10), size estimate (S/M/L/XL), technical approach, and a direct link to the research that inspired it.
+- **Swipe Interface (IdeaSwipe)** — Tinder-style card interface for reviewing ideas. Four actions: Pass (rejected, preference model learns), Maybe (saved to pool, resurfaces in 1 week), Yes (task created, build agent starts), Now! (urgent dispatch, priority queue). Full swipe history tracking.
+- **Product Program** — Inspired by Karpathy's [AutoResearch](https://github.com/karpathy/autoresearch) `program.md` pattern. Each product has a living document that instructs research and ideation agents on what to look for, priorities, and constraints. Evolves as swipe data accumulates.
+- **Preference Learning** — Per-product preference model trained from swipe history. Category weights, complexity preferences, and tag patterns adjust automatically. Ideas get sharper with every iteration.
+- **Maybe Pool** — Ideas swiped "Maybe" enter a holding pool. Auto-resurface after configurable period with fresh market context. Batch re-evaluation mode. Promote to Yes at any time.
+- **Product Scheduling** — Configure research and ideation cycles per product. Cron-style schedules with enable/disable toggles. Auto-dispatch rules for approved ideas.
+- **Product Management UI** — Full product CRUD with URL scanning, research report viewer, ideation cycle history, swipe statistics, and per-product cost tracking.
+
+#### Convoy Mode — Parallel Multi-Agent Execution
+- **Convoy orchestration** — Large features decomposed into subtasks with dependency-aware scheduling. 3–5 agents work simultaneously on one feature.
+- **Dependency graph visualization** — Visual DAG showing subtask dependencies, completion status, and agent assignments.
+- **Inter-agent mailbox** — Convoy agents can send messages to each other during execution. Messages queued and delivered at checkpoints.
+- **Convoy progress tracking** — Real-time progress aggregation across all subtasks. Parent task status derived from subtask completion.
+
+#### Agent Health Monitoring
+- **Stall detection** — Agents are monitored at configurable intervals (default 6 min). Stall threshold (5 min no activity), stuck threshold (15 min), and auto-nudge after 3 consecutive stall events.
+- **Auto-nudge** — Stalled agents are automatically killed and restarted from their last checkpoint. If nudge fails, task is flagged for manual intervention.
+- **Health indicators** — Real-time health badges on agent cards (healthy/stalled/stuck/offline).
+- **Health API** — Per-agent and aggregate health endpoints for monitoring.
+
+#### Operator Chat
+- **Queued notes** — Add context to running tasks. Notes are delivered to the agent at its next checkpoint.
+- **Direct messages** — Real-time delivery to the agent's active session. Agent incorporates changes immediately.
+- **Chat history** — Full per-task chat log preserved. Every message, note, and agent response.
+- **Chat listener** — Server-side relay that bridges operator messages to agent sessions via OpenClaw.
+
+#### Cost Tracking & Budget Caps
+- **Per-task cost events** — Every API call tracked with model, tokens, and cost.
+- **Per-product cost aggregation** — See total spend across all tasks for a product.
+- **Daily and monthly budget caps** — Set limits that auto-pause dispatch when exceeded.
+- **Cost breakdown API** — Detailed reports by agent, model, task, product, and time period.
+- **Cost dashboard UI** — Visual breakdown with charts and spending trends.
+
+#### Checkpoint & Crash Recovery
+- **Checkpoint save** — Agent progress saved at configurable intervals. Includes task state, files modified, and agent context.
+- **Checkpoint restore** — Resume from any saved checkpoint. Manual restore via API or automatic on crash.
+- **Checkpoint history** — View all checkpoints per task with timestamps and metadata.
+
+#### Knowledge Base
+- **Learner agent** — Captures lessons from every build cycle: what worked, what failed, patterns observed.
+- **Knowledge injection** — Learner entries are injected into future dispatch messages so agents don't repeat mistakes.
+- **Per-workspace knowledge** — Knowledge scoped to workspace for relevance.
+
+#### Workspace Isolation
+- **Git worktrees** — Repo-backed projects get isolated branches via git worktree. No conflicts between concurrent agents.
+- **Task sandboxes** — Local/no-repo projects get dedicated directories under `.workspaces/task-{id}/`.
+- **Port allocation** — Dev server ports from 4200–4299 range with unique constraint. No port conflicts between concurrent builds.
+- **Serialized merge queue** — Completed tasks merge one at a time with conflict detection. Product-scoped locking for concurrent completions.
+- **Workspace status UI** — ISOLATED badge on kanban cards, WorkspaceTab in task modal showing workspace path, branch, port, and merge status.
+
+#### Automation Tiers
+- **Supervised** — PRs created automatically, you review and merge manually. Default for production apps.
+- **Semi-Auto** — PRs auto-merge when CI passes and review agent approves. For staging and trusted repos.
+- **Full Auto** — Everything automated end-to-end. Idea to deployed feature. For side projects and MVPs.
+- **Per-product configuration** — Change automation level anytime per product.
+
+#### New UI Components
+- `SwipeDeck` — Stacked card interface for idea review with swipe animations
+- `IdeaCard` — Detailed idea card with scores, tags, and research links
+- `ResearchReport` — Research cycle viewer with progress tracking
+- `ActivityPanel` — Real-time autopilot activity stream with auto-scroll
+- `BuildQueue` — Visual build queue with agent assignments
+- `MaybePool` — Maybe idea management interface
+- `ProductProgramEditor` — In-app editor for product programs
+- `IdeasList` — Sortable/filterable ideas table
+- `ConvoyTab` — Convoy subtask visualization
+- `DependencyGraph` — Interactive DAG for convoy dependencies
+- `HealthIndicator` — Agent health status badges
+- `TaskChatTab` — Operator chat interface
+- `WorkspaceTab` — Workspace isolation status and controls
+- `costs/` — Cost breakdown dashboard components
+
+#### New API Endpoints
+- `GET/POST /api/products` — Product CRUD
+- `GET/PATCH/DELETE /api/products/[id]` — Individual product management
+- `POST /api/products/[id]/research/run` — Trigger research cycle
+- `GET /api/products/[id]/research/cycles` — Research cycle history
+- `POST /api/products/[id]/ideation/run` — Trigger ideation cycle
+- `GET /api/products/[id]/ideation/cycles` — Ideation cycle history
+- `GET /api/products/[id]/swipe/deck` — Get swipeable idea deck
+- `POST /api/products/[id]/swipe` — Record swipe decision
+- `GET /api/products/[id]/swipe/history` — Swipe history
+- `GET /api/products/[id]/swipe/stats` — Swipe statistics
+- `GET/POST /api/products/[id]/maybe` — Maybe pool management
+- `POST /api/products/[id]/maybe/[ideaId]/resurface` — Force resurface
+- `POST /api/products/[id]/maybe/evaluate` — Batch re-evaluation
+- `GET/POST /api/products/[id]/schedules` — Product schedules
+- `GET/PATCH/DELETE /api/products/[id]/schedules/[schedId]` — Individual schedule
+- `GET /api/products/[id]/ideas` — All ideas for product
+- `GET /api/products/[id]/ideas/pending` — Unreviewed ideas
+- `GET/PATCH/DELETE /api/products/[id]/ideas/[ideaId]` — Individual idea
+- `GET /api/products/[id]/costs` — Product cost summary
+- `GET /api/products/[id]/activity` — Product activity feed
+- `GET /api/products/[id]/workspaces` — Product workspace listing
+- `POST /api/products/scan-url` — Scan URL for product metadata
+- `GET/POST /api/tasks/[id]/convoy` — Convoy management
+- `POST /api/tasks/[id]/convoy/dispatch` — Dispatch convoy subtasks
+- `GET /api/tasks/[id]/convoy/subtasks` — List convoy subtasks
+- `GET /api/tasks/[id]/convoy/progress` — Convoy progress
+- `POST /api/convoy/[convoyId]/mail` — Inter-agent convoy mail
+- `GET/POST /api/tasks/[id]/chat` — Operator chat
+- `GET/POST /api/tasks/[id]/checkpoint` — Checkpoint management
+- `POST /api/tasks/[id]/checkpoint/restore` — Restore from checkpoint
+- `GET /api/tasks/[id]/checkpoints` — Checkpoint history
+- `GET/POST /api/tasks/[id]/workspace` — Task workspace status
+- `GET /api/agents/health` — Aggregate agent health
+- `GET /api/agents/[id]/health` — Per-agent health
+- `POST /api/agents/[id]/health/nudge` — Manual nudge
+- `GET/POST /api/agents/[id]/mail` — Agent mailbox
+- `GET/POST /api/costs` — Cost event tracking
+- `POST /api/costs/event` — Record cost event
+- `GET /api/costs/breakdown` — Cost breakdown report
+- `GET/POST /api/costs/caps` — Budget cap management
+- `GET /api/costs/caps/status` — Current cap status
+
+#### Database — 8 New Migrations (014–021)
+- Migration 014: Convoy tables (`convoys`, `convoy_subtasks`), agent health monitoring (`agent_health`), work checkpoints (`work_checkpoints`), agent mailbox (`agent_mailbox`)
+- Migration 015: Task table expansion (workspace columns, dispatch lock, retry count, convoy reference, product/idea references)
+- Migration 016: Product Autopilot tables (`products`, `research_cycles`, `ideas`, `swipe_history`, `preference_models`, `maybe_pool`, `product_feedback`)
+- Migration 017: Cost tracking tables (`cost_events`, `cost_caps`)
+- Migration 018: Product scheduling (`product_schedules`, `operations_log`), autopilot activity log (`autopilot_activity_log`)
+- Migration 019–021: Workspace isolation (`workspace_ports`, `workspace_merges`), schema refinements
+
+### Changed
+- **Project identity** — "Mission Control" → "Autensa" throughout. Tagline updated to "The Autonomous Product Engine"
+- **Architecture** — Added Autopilot Engine layer between dashboard and agent runtime
+- **Task dispatch** — Now supports workspace isolation strategy detection before dispatch. Agents receive isolated paths, ports, branches, and workspace boundaries
+- **Merge on completion** — Task completion triggers workspace merge with product-scoped serialization lock
+
+### Technical
+- 21 total database migrations (up from 13)
+- 18 new database tables
+- 80+ new API endpoints
+- 2,831 lines of new core library code (autopilot + convoy + health + checkpoints + workspace + mailbox + chat + learner)
+- 8 new UI components for autopilot features
+- Shared LLM completion helper (`lib/autopilot/llm.ts`) for stateless HTTP calls to AI providers
 
 ---
 
@@ -249,14 +398,24 @@ This is the first stable, tested, and working release of Mission Control.
 - [x] Multiple workspaces
 - [x] Webhook integrations
 - [x] API authentication & security hardening
+- [x] Product Autopilot (Research → Ideation → Swipe → Build)
+- [x] Convoy Mode (parallel multi-agent execution)
+- [x] Agent health monitoring & auto-nudge
+- [x] Operator chat (mid-build communication)
+- [x] Cost tracking & budget caps
+- [x] Checkpoint & crash recovery
+- [x] Workspace isolation (git worktrees + sandboxes)
+- [x] Preference learning from swipe history
 - [ ] Team collaboration
-- [ ] Task dependencies
-- [ ] Agent performance metrics
-- [ ] Mobile-responsive improvements
+- [ ] Multi-tenant SaaS mode
+- [ ] Agent performance metrics dashboard
+- [ ] Mobile app
 - [ ] Dark/light theme toggle
+- [ ] Plugin system for custom research sources
 
 ---
 
+[2.0.0]: https://github.com/crshdn/mission-control/compare/v1.5.3...v2.0.0
 [1.4.0]: https://github.com/crshdn/mission-control/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/crshdn/mission-control/releases/tag/v1.3.1
 [1.3.0]: https://github.com/crshdn/mission-control/compare/v1.2.0...v1.3.0

@@ -112,6 +112,41 @@ export function useSSE() {
               debug.sse('Agent completed', sseEvent.payload);
               break;
 
+            case 'convoy_created':
+            case 'convoy_progress':
+            case 'convoy_completed':
+              debug.sse(`Convoy event: ${sseEvent.type}`, sseEvent.payload);
+              // Convoy events trigger task re-fetch via task_updated events
+              break;
+
+            case 'agent_health_changed':
+              debug.sse('Agent health changed', sseEvent.payload);
+              break;
+
+            case 'checkpoint_saved':
+              debug.sse('Checkpoint saved', sseEvent.payload);
+              break;
+
+            case 'mail_received':
+              debug.sse('Mail received', sseEvent.payload);
+              break;
+
+            case 'research_started':
+            case 'research_completed':
+            case 'research_phase':
+            case 'ideation_phase':
+            case 'autopilot_activity':
+            case 'ideas_generated':
+            case 'idea_swiped':
+            case 'idea_building':
+            case 'idea_shipped':
+            case 'maybe_resurfaced':
+            case 'preference_updated':
+            case 'cost_cap_warning':
+            case 'cost_cap_exceeded':
+              debug.sse(`Autopilot event: ${sseEvent.type}`, sseEvent.payload);
+              break;
+
             default:
               debug.sse('Unknown event type', sseEvent);
           }

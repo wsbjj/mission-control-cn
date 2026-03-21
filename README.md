@@ -11,6 +11,10 @@
 </p>
 
 <p align="center">
+I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.cloud/?ref=WYxriOUHyTil">You can sign up here.</a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/github/stars/crshdn/mission-control?style=flat-square" alt="GitHub Stars" />
   <img src="https://img.shields.io/github/issues/crshdn/mission-control?style=flat-square" alt="GitHub Issues" />
   <img src="https://img.shields.io/github/license/crshdn/mission-control?style=flat-square" alt="License" />

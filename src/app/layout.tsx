@@ -3,6 +3,7 @@ import './globals.css';
 import { JetBrains_Mono } from 'next/font/google';
 import DemoBanner from '@/components/DemoBanner';
 import { ToastProvider } from '@/components/Toast';
+import { ChatProvider } from '@/components/chat/ChatProvider';
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ['latin'],
@@ -29,7 +30,9 @@ export default function RootLayout({
       <body className={`${jetbrainsMono.className} bg-mc-bg text-mc-text min-h-screen`}>
         <ToastProvider>
           <DemoBanner />
-          {children}
+          <ChatProvider>
+            {children}
+          </ChatProvider>
         </ToastProvider>
       </body>
     </html>

@@ -1436,6 +1436,28 @@ const migrations: Migration[] = [
 
       console.log('[Migration 023] Idea similarity detection tables and columns created');
     }
+  },
+  {
+    id: '024',
+    name: 'add_user_task_reads',
+    up: (db) => {
+      console.log('[Migration 024] Adding user_task_reads table for unread tracking...');
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS user_task_reads (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL DEFAULT 'operator',
+          task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+          last_read_at TEXT NOT NULL,
+          created_at TEXT DEFAULT (datetime('now')),
+          UNIQUE(user_id, task_id)
+        )
+      `);
+
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_user_task_reads_user_task ON user_task_reads(user_id, task_id)`);
+
+      console.log('[Migration 024] user_task_reads table created');
+    }
   }
 ];
 

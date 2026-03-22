@@ -1,10 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Plus, ChevronRight, GripVertical, ArrowRightLeft, AlertTriangle } from 'lucide-react';
+import { Plus, ChevronRight, GripVertical, ArrowRightLeft, AlertTriangle, MessageSquare } from 'lucide-react';
 import { useMissionControl } from '@/lib/store';
 import { triggerAutoDispatch, shouldTriggerAutoDispatch } from '@/lib/auto-dispatch';
 import { getConfig } from '@/lib/config';
+import { useUnreadCounts } from '@/hooks/useUnreadCounts';
 import type { Task, TaskStatus } from '@/lib/types';
 import { TaskModal } from './TaskModal';
 import { formatDistanceToNow } from 'date-fns';
@@ -30,6 +31,7 @@ const COLUMNS: { id: TaskStatus; label: string; color: string }[] = [
 export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = true }: MissionQueueProps) {
   const { tasks, updateTaskStatus, addEvent } = useMissionControl();
   const [compactEmptyColumns, setCompactEmptyColumns] = useState(true);
+  const unreadCounts = useUnreadCounts();
 
   useEffect(() => {
     const cfg = getConfig();
@@ -202,6 +204,7 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
                       isDragging={draggedTask?.id === task.id}
                       mobileMode={false}
                       portraitMode={false}
+                      unreadCount={unreadCounts[task.id] || 0}
                     />
                   ))}
                 </div>
@@ -247,6 +250,7 @@ export function MissionQueue({ workspaceId, mobileMode = false, isPortrait = tru
                   isDragging={false}
                   mobileMode
                   portraitMode={isPortrait}
+                  unreadCount={unreadCounts[task.id] || 0}
                 />
               ))
             )}
@@ -388,9 +392,10 @@ interface TaskCardProps {
   isDragging: boolean;
   mobileMode: boolean;
   portraitMode?: boolean;
+  unreadCount?: number;
 }
 
-function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true }: TaskCardProps) {
+function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true, unreadCount = 0 }: TaskCardProps) {
   const priorityStyles = {
     low: 'text-mc-text-secondary',
     normal: 'text-mc-accent',
@@ -427,7 +432,15 @@ function TaskCard({ task, onDragStart, onClick, onMoveStatus, isDragging, mobile
       )}
 
       <div className={portraitMode ? 'p-4' : 'p-3'}>
-        <h4 className={`font-medium leading-snug line-clamp-2 ${portraitMode ? 'text-sm mb-3' : 'text-xs mb-2'}`}>{task.title}</h4>
+        <div className="flex items-start justify-between gap-1.5">
+          <h4 className={`font-medium leading-snug line-clamp-2 ${portraitMode ? 'text-sm mb-3' : 'text-xs mb-2'}`}>{task.title}</h4>
+          {unreadCount > 0 && (
+            <span className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-mc-accent/15 text-mc-accent rounded text-[10px] font-medium" title={`${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}`}>
+              <MessageSquare className="w-2.5 h-2.5" />
+              {unreadCount}
+            </span>
+          )}
+        </div>
 
         {isPlanning && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-purple-500/10 rounded-md border border-purple-500/20`}>

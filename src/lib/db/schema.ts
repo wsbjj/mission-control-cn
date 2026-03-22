@@ -664,6 +664,16 @@ CREATE TABLE IF NOT EXISTS product_health_scores (
   calculated_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- User task read tracking (for unread message badges)
+CREATE TABLE IF NOT EXISTS user_task_reads (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'operator',
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  last_read_at TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, task_id)
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id);
@@ -719,4 +729,5 @@ CREATE INDEX IF NOT EXISTS idx_health_scores_snapshot ON product_health_scores(p
 CREATE INDEX IF NOT EXISTS idx_idea_embeddings_product ON idea_embeddings(product_id);
 CREATE INDEX IF NOT EXISTS idx_idea_embeddings_idea ON idea_embeddings(idea_id);
 CREATE INDEX IF NOT EXISTS idx_idea_suppressions_product ON idea_suppressions(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_task_reads_user_task ON user_task_reads(user_id, task_id);
 `;

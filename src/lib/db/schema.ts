@@ -674,6 +674,8 @@ CREATE TABLE IF NOT EXISTS user_task_reads (
   last_read_at TEXT NOT NULL,
   created_at TEXT DEFAULT (datetime('now')),
   UNIQUE(user_id, task_id)
+);
+
 -- Product Program variants for A/B testing
 CREATE TABLE IF NOT EXISTS product_program_variants (
   id TEXT PRIMARY KEY,

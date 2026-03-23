@@ -68,7 +68,7 @@ export const CreateTaskSchema = z.object({
 // only allows `undefined`, not `null` — use unions / preprocess where needed.
 export const UpdateTaskSchema = z.object({
   title: z.preprocess(
-    (val) => (val === null || val === undefined || val === '' ? undefined : val),
+    (val) => (val === null || val === undefined ? undefined : val),
     z.string().min(1).max(500).optional()
   ),
   description: z.union([z.string().max(10000), z.null()]).optional(),

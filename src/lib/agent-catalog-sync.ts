@@ -12,11 +12,23 @@ const SYNC_INTERVAL_MS = Number(process.env.AGENT_CATALOG_SYNC_INTERVAL_MS || 60
 let lastSyncAt = 0;
 let syncing: Promise<number> | null = null;
 
+function extractRoleFromWorkspaceAgentName(name: string): string | null {
+  const n = name.toLowerCase();
+  const match = n.match(/-(builder|tester|reviewer|learner|fixer|senior|orchestrator)-agent$/);
+  return match?.[1] || null;
+}
+
 function normalizeRole(name: string): string {
   const n = name.toLowerCase();
+  // Workspace role-agent naming convention:
+  // mc-<workspaceSlug>-<workspaceSuffix>-<role>-agent
+  // Parse this first to avoid false matches from slug text like "test003".
+  const strictRole = extractRoleFromWorkspaceAgentName(name);
+  if (strictRole) return strictRole;
+
   if (n.includes('learn')) return 'learner';
-  if (n.includes('test')) return 'tester';
-  if (n.includes('review') || n.includes('verif')) return 'reviewer';
+  if (/\btest(er|ing)?\b/.test(n)) return 'tester';
+  if (/\breview(er)?\b/.test(n) || /\bverif(y|ier|ication)\b/.test(n)) return 'reviewer';
   if (n.includes('fix')) return 'fixer';
   if (n.includes('senior')) return 'senior';
   if (n.includes('plan') || n.includes('orch')) return 'orchestrator';
@@ -39,10 +51,10 @@ export async function syncGatewayAgentsToCatalog(options?: { force?: boolean; re
     }
 
     const gatewayAgents = (await client.listAgents()) as GatewayAgent[];
-    const existing = queryAll<{ id: string; gateway_agent_id: string | null }>(
-      `SELECT id, gateway_agent_id FROM agents WHERE gateway_agent_id IS NOT NULL`
+    const existing = queryAll<{ id: string; gateway_agent_id: string | null; source: string | null; role: string | null; name: string | null }>(
+      `SELECT id, gateway_agent_id, source, role, name FROM agents WHERE gateway_agent_id IS NOT NULL`
     );
-    const existingByGatewayId = new Map(existing.map((a) => [a.gateway_agent_id, a.id]));
+    const existingByGatewayId = new Map(existing.map((a) => [a.gateway_agent_id, a]));
 
     let changed = 0;
     const ts = new Date().toISOString();
@@ -54,12 +66,20 @@ export async function syncGatewayAgentsToCatalog(options?: { force?: boolean; re
 
         const name = ga.name || ga.label || gatewayId;
         const role = normalizeRole(name);
-        const existingId = existingByGatewayId.get(gatewayId) || null;
+        const existingAgent = existingByGatewayId.get(gatewayId) || null;
 
-        if (existingId) {
+        if (existingAgent?.id) {
+          const strictRole = extractRoleFromWorkspaceAgentName(name);
+          const nextRole = existingAgent.source === 'local'
+            ? (strictRole || existingAgent.role || role)
+            : role;
+          const nextName = existingAgent.source === 'local'
+            ? (existingAgent.name || name)
+            : name;
+          const nextSource = existingAgent.source === 'local' ? 'local' : 'gateway';
           run(
-            `UPDATE agents SET name = ?, role = ?, model = COALESCE(?, model), source = 'gateway', updated_at = ? WHERE id = ?`,
-            [name, role, ga.model || null, ts, existingId]
+            `UPDATE agents SET name = ?, role = ?, model = COALESCE(?, model), source = ?, updated_at = ? WHERE id = ?`,
+            [nextName, nextRole, ga.model || null, nextSource, ts, existingAgent.id]
           );
         } else {
           run(

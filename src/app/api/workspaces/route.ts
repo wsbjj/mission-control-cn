@@ -147,8 +147,8 @@ export async function POST(request: NextRequest) {
 
       const updateAgent = db.prepare(`
         UPDATE agents
-        -- 保持 gateway_agent_id 和 session_key_prefix 用于路由隔离，但 UI 侧不把它们标成 gateway
-        --（避免用户误以为都在 main 池跑，同时满足你选 A 的展示诉求）
+        -- Keep gateway routing metadata for OpenClaw isolation while preserving
+        -- local ownership semantics in UI and downstream selection logic.
         SET gateway_agent_id = ?, session_key_prefix = ?, source = 'local', updated_at = datetime('now')
         WHERE id = ?
       `);

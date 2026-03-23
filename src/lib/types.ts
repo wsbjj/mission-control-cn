@@ -323,6 +323,7 @@ export interface CreateAgentRequest {
   user_md?: string;
   agents_md?: string;
   model?: string;
+  session_key_prefix?: string;
 }
 
 export interface UpdateAgentRequest extends Partial<CreateAgentRequest> {
@@ -428,6 +429,9 @@ export type FeedbackSentiment = 'positive' | 'negative' | 'neutral' | 'mixed';
 
 export type BuildMode = 'auto_build' | 'plan_first';
 
+export type ABTestStatus = 'active' | 'concluded' | 'cancelled';
+export type ABTestSplitMode = 'concurrent' | 'alternating';
+
 export type PRStatus = 'pending' | 'open' | 'merged' | 'closed';
 
 export interface Product {
@@ -445,8 +449,110 @@ export interface Product {
   default_branch?: string;
   cost_cap_per_task?: number;
   cost_cap_monthly?: number;
+  health_weight_config?: string; // JSON: HealthWeightConfig
+  batch_review_threshold?: number;
   created_at: string;
   updated_at: string;
+}
+
+// Health Score types
+export type HealthComponent = 'research' | 'pipeline' | 'swipe' | 'build' | 'cost';
+
+export interface HealthWeightConfig {
+  research: number;
+  pipeline: number;
+  swipe: number;
+  build: number;
+  cost: number;
+  disabled: HealthComponent[];
+}
+
+export interface HealthComponentScore {
+  name: HealthComponent;
+  label: string;
+  score: number;
+  weight: number;
+  effectiveWeight: number;
+  rawValue: number;
+  unit: string;
+  description: string;
+}
+
+export interface ProductHealthScore {
+  id: string;
+  product_id: string;
+  overall_score: number;
+  research_freshness_score: number;
+  pipeline_depth_score: number;
+  swipe_velocity_score: number;
+  build_success_score: number;
+  cost_efficiency_score: number;
+  component_data?: string; // JSON: HealthComponentScore[]
+  snapshot_date?: string;
+  calculated_at: string;
+}
+
+export interface HealthScoreResponse {
+  score: ProductHealthScore;
+  components: HealthComponentScore[];
+  weights: HealthWeightConfig;
+  history: ProductHealthScore[];
+}
+
+export interface ProductProgramVariant {
+  id: string;
+  product_id: string;
+  name: string;
+  content: string;
+  is_control: number;
+  created_at: string;
+}
+
+export interface ProductABTest {
+  id: string;
+  product_id: string;
+  variant_a_id: string;
+  variant_b_id: string;
+  status: ABTestStatus;
+  split_mode: ABTestSplitMode;
+  min_swipes: number;
+  last_variant_used?: string;
+  winner_variant_id?: string;
+  created_at: string;
+  concluded_at?: string;
+  // Joined fields
+  variant_a?: ProductProgramVariant;
+  variant_b?: ProductProgramVariant;
+}
+
+export interface ABTestComparisonMetrics {
+  variant_id: string;
+  variant_name: string;
+  is_control: boolean;
+  ideas_generated: number;
+  swipes_total: number;
+  swipes_approved: number;
+  swipes_rejected: number;
+  swipes_maybe: number;
+  acceptance_rate: number;
+  tasks_created: number;
+  tasks_completed: number;
+  build_success_rate: number;
+  cost_total_usd: number;
+  cost_per_shipped_idea: number | null;
+}
+
+export interface ABTestComparison {
+  test: ProductABTest;
+  variant_a_metrics: ABTestComparisonMetrics;
+  variant_b_metrics: ABTestComparisonMetrics;
+  statistics: {
+    chi_squared: number | null;
+    p_value: number | null;
+    confidence_tier: 'raw' | 'ci' | 'significance';
+    significant: boolean;
+    recommended_winner: string | null;
+  };
 }
 
 export type ResearchCyclePhase = 'init' | 'llm_submitted' | 'llm_polling' | 'report_received' | 'completed';
@@ -526,6 +632,10 @@ export interface Idea {
   user_notes?: string;
   resurfaced_from?: string;
   resurfaced_reason?: string;
+  similarity_flag?: string; // JSON array of similar idea refs
+  auto_suppressed?: number; // 1 = suppressed due to similarity
+  suppress_reason?: string;
+  variant_id?: string;
   created_at: string;
   updated_at: string;
 }
@@ -729,7 +839,11 @@ export type SSEEventType =
   | 'note_delivered'
   | 'research_phase'
   | 'ideation_phase'
-  | 'autopilot_activity';
+  | 'autopilot_activity'
+  | 'health_score_updated'
+  | 'ab_test_started'
+  | 'ab_test_concluded'
+  | 'ab_test_cancelled';
 
 export interface SSEEvent {
   type: SSEEventType;

@@ -3,7 +3,10 @@ import { queryOne, queryAll, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { recordCostEvent } from '@/lib/costs/tracker';
 import { emitAutopilotActivity } from './activity';
+import { runIdeationCycle } from './ideation';
+import { recalculateAndBroadcast } from './health-score';
 import { completeJSON } from './llm';
+import { getResearchPrograms } from './ab-testing';
 import type { Product, ResearchCycle } from '@/lib/types';
 
 function buildResearchPrompt(product: Product, learnedPreferences?: string): string {
@@ -46,8 +49,9 @@ ${learnedPreferences ? `## Learned Preferences\n${learnedPreferences}` : ''}`;
 /**
  * Run a research cycle for a product.
  * Uses the Gateway's /v1/chat/completions endpoint for stateless prompt→response.
+ * When an A/B test is active, runs research for each variant program.
  */
-export async function runResearchCycle(productId: string, existingCycleId?: string): Promise<string> {
+export async function runResearchCycle(productId: string, existingCycleId?: string, chainIdeation = false): Promise<string> {
   const product = queryOne<Product>('SELECT * FROM products WHERE id = ?', [productId]);
   if (!product) throw new Error(`Product ${productId} not found`);
 
@@ -68,10 +72,14 @@ export async function runResearchCycle(productId: string, existingCycleId?: stri
     );
   }
 
+  // Get research programs — may return multiple if A/B test is active in concurrent mode
+  const programs = getResearchPrograms(productId);
+  const isABTest = programs.some(p => p.variantId !== null);
+
   emitAutopilotActivity({
     productId, cycleId, cycleType: 'research',
     eventType: 'phase_init',
-    message: 'Research cycle started',
+    message: isABTest ? `Research cycle started (A/B test: ${programs.length} variant(s))` : 'Research cycle started',
     detail: `Product: ${product.name}`,
   });
 
@@ -81,75 +89,114 @@ export async function runResearchCycle(productId: string, existingCycleId?: stri
   // Run asynchronously
   (async () => {
     try {
-      const prompt = buildResearchPrompt(product, prefModel?.learned_preferences_md);
+      // For each program variant, run a research prompt
+      const allReports: Array<{ report: unknown; variantId: string | null; variantName: string | null }> = [];
+      let totalTokens = 0;
+      let lastModel = '';
 
-      // Phase: llm_submitted
-      run(
-        `UPDATE research_cycles SET current_phase = 'llm_submitted', last_heartbeat = ? WHERE id = ?`,
-        [new Date().toISOString(), cycleId]
-      );
-      emitAutopilotActivity({
-        productId, cycleId, cycleType: 'research',
-        eventType: 'phase_llm_submitted',
-        message: 'Sending research prompt to LLM...',
-      });
-      broadcast({ type: 'research_phase', payload: { productId, cycleId, phase: 'llm_submitted' } });
+      for (const programEntry of programs) {
+        // Override the product's program with the variant content for this run
+        const effectiveProduct = { ...product, product_program: programEntry.program };
+        const prompt = buildResearchPrompt(effectiveProduct, prefModel?.learned_preferences_md);
 
-      // Phase: llm_polling (actually waiting for HTTP response — label kept for consistency)
-      run(
-        `UPDATE research_cycles SET current_phase = 'llm_polling', last_heartbeat = ? WHERE id = ?`,
-        [new Date().toISOString(), cycleId]
-      );
-      emitAutopilotActivity({
-        productId, cycleId, cycleType: 'research',
-        eventType: 'phase_llm_polling',
-        message: 'Waiting for research agent response...',
-      });
-      broadcast({ type: 'research_phase', payload: { productId, cycleId, phase: 'llm_polling' } });
+        const variantLabel = programEntry.variantName ? ` [${programEntry.variantName}]` : '';
 
-      const { data: report, usage } = await completeJSON(prompt, {
-        systemPrompt: 'You are a product research agent. Analyze the product and respond with a JSON research report only.',
-        timeoutMs: 300_000, // 5 minutes
-      });
+        // Phase: llm_submitted
+        run(
+          `UPDATE research_cycles SET current_phase = 'llm_submitted', last_heartbeat = ? WHERE id = ?`,
+          [new Date().toISOString(), cycleId]
+        );
+        emitAutopilotActivity({
+          productId, cycleId, cycleType: 'research',
+          eventType: 'phase_llm_submitted',
+          message: `Sending research prompt to LLM${variantLabel}...`,
+        });
+        broadcast({ type: 'research_phase', payload: { productId, cycleId, phase: 'llm_submitted' } });
 
-      // Phase: report_received
+        // Phase: llm_polling
+        run(
+          `UPDATE research_cycles SET current_phase = 'llm_polling', last_heartbeat = ? WHERE id = ?`,
+          [new Date().toISOString(), cycleId]
+        );
+        emitAutopilotActivity({
+          productId, cycleId, cycleType: 'research',
+          eventType: 'phase_llm_polling',
+          message: `Waiting for research agent response${variantLabel}...`,
+        });
+        broadcast({ type: 'research_phase', payload: { productId, cycleId, phase: 'llm_polling' } });
+
+        const { data: report, model: responseModel, usage } = await completeJSON(prompt, {
+          systemPrompt: 'You are a product research agent. Analyze the product and respond with a JSON research report only.',
+          timeoutMs: 300_000,
+        });
+
+        allReports.push({ report, variantId: programEntry.variantId, variantName: programEntry.variantName });
+        totalTokens += usage.totalTokens;
+        lastModel = responseModel;
+
+        recordCostEvent({
+          product_id: productId,
+          workspace_id: product.workspace_id,
+          cycle_id: cycleId,
+          event_type: 'research_cycle',
+          model: responseModel,
+          tokens_input: usage.promptTokens,
+          tokens_output: usage.completionTokens,
+          cost_usd: 0,
+        });
+      }
+
+      // Phase: report_received — store combined report
+      const combinedReport = allReports.length === 1
+        ? allReports[0].report
+        : { variants: allReports.map(r => ({ variantId: r.variantId, variantName: r.variantName, report: r.report })) };
+
       run(
         `UPDATE research_cycles SET current_phase = 'report_received', phase_data = ?, last_heartbeat = ? WHERE id = ?`,
-        [JSON.stringify({ report }), new Date().toISOString(), cycleId]
+        [JSON.stringify({ report: combinedReport, variants: allReports.map(r => ({ variantId: r.variantId, variantName: r.variantName })) }), new Date().toISOString(), cycleId]
       );
       emitAutopilotActivity({
         productId, cycleId, cycleType: 'research',
         eventType: 'phase_report_received',
         message: 'Research report received',
-        detail: `Sections: ${Object.keys((report as Record<string, unknown>).sections || (report as object)).join(', ')}`,
+        detail: isABTest ? `${allReports.length} variant reports received` : `Sections: ${Object.keys((allReports[0].report as Record<string, unknown>).sections || (allReports[0].report as object)).join(', ')}`,
       });
       broadcast({ type: 'research_phase', payload: { productId, cycleId, phase: 'report_received' } });
 
       // Phase: completed
       run(
         `UPDATE research_cycles SET status = 'completed', report = ?, completed_at = ?, current_phase = 'completed' WHERE id = ?`,
-        [JSON.stringify(report), new Date().toISOString(), cycleId]
+        [JSON.stringify(combinedReport), new Date().toISOString(), cycleId]
       );
-
-      recordCostEvent({
-        product_id: productId,
-        workspace_id: product.workspace_id,
-        cycle_id: cycleId,
-        event_type: 'research_cycle',
-        cost_usd: 0, // TODO: calculate from usage
-      });
 
       emitAutopilotActivity({
         productId, cycleId, cycleType: 'research',
         eventType: 'phase_completed',
         message: 'Research cycle completed successfully',
-        detail: `Tokens used: ${usage.totalTokens}`,
+        detail: `Tokens used: ${totalTokens}`,
+        tokensUsed: totalTokens,
       });
 
       broadcast({ type: 'research_completed', payload: { productId, cycleId } });
       broadcast({ type: 'research_phase', payload: { productId, cycleId, phase: 'completed' } });
 
-      console.log(`[Research] Cycle ${cycleId} completed successfully (tokens: ${usage.totalTokens})`);
+      // Recalculate health score after research cycle completes
+      try { recalculateAndBroadcast(productId); } catch (err) {
+        console.error('[Research] Health score recalc failed:', err);
+      }
+
+      console.log(`[Research] Cycle ${cycleId} completed successfully (tokens: ${totalTokens})`);
+
+      // Auto-chain: kick off ideation using this research cycle
+      // Pass variant metadata so ideation can tag ideas correctly
+      if (chainIdeation) {
+        try {
+          const ideationId = await runIdeationCycle(productId, cycleId);
+          console.log(`[Research] Auto-chained ideation cycle ${ideationId} for product ${productId}`);
+        } catch (ideaErr) {
+          console.error(`[Research] Auto-chain ideation failed for product ${productId}:`, ideaErr);
+        }
+      }
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
       run(

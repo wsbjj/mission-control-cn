@@ -32,9 +32,17 @@ async function handlePlanningCompletion(taskId: string, parsed: any, messages: a
     const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false';
 
     if (allowDynamicAgents && parsed.agents && parsed.agents.length > 0) {
+      // Get the master agent's session_key_prefix to use for new agents
+      const task = db.prepare('SELECT workspace_id FROM tasks WHERE id = ?').get(taskId) as { workspace_id: string } | undefined;
+      const masterAgent = task ? db.prepare(
+        `SELECT session_key_prefix FROM agents WHERE is_master = 1 AND workspace_id = ? ORDER BY created_at ASC LIMIT 1`
+      ).get(task.workspace_id) as { session_key_prefix?: string } | undefined : undefined;
+      
+      const sessionKeyPrefix = masterAgent?.session_key_prefix || 'agent:main:';
+
       const insertAgent = db.prepare(`
-        INSERT INTO agents (id, workspace_id, name, role, description, avatar_emoji, status, soul_md, created_at, updated_at)
-        VALUES (?, (SELECT workspace_id FROM tasks WHERE id = ?), ?, ?, ?, ?, 'standby', ?, datetime('now'), datetime('now'))
+        INSERT INTO agents (id, workspace_id, name, role, description, avatar_emoji, status, soul_md, session_key_prefix, created_at, updated_at)
+        VALUES (?, (SELECT workspace_id FROM tasks WHERE id = ?), ?, ?, ?, ?, 'standby', ?, ?, datetime('now'), datetime('now'))
       `);
 
       for (const agent of parsed.agents) {
@@ -48,7 +56,8 @@ async function handlePlanningCompletion(taskId: string, parsed: any, messages: a
           agent.role,
           agent.instructions || '',
           agent.avatar_emoji || '🤖',
-          agent.soul_md || ''
+          agent.soul_md || '',
+          sessionKeyPrefix
         );
       }
     } else if (!allowDynamicAgents && parsed.agents && parsed.agents.length > 0) {
@@ -139,6 +148,7 @@ async function handlePlanningCompletion(taskId: string, parsed: any, messages: a
       const dispatchRes = await fetch(dispatchUrl, {
         method: 'POST',
         headers: dispatchHeaders,
+        signal: AbortSignal.timeout(30_000),
       });
 
       if (dispatchRes.ok) {
@@ -307,8 +317,39 @@ export async function GET(
       });
     }
 
-    console.log('[Planning Poll] No new messages found');
-    return NextResponse.json({ hasUpdates: false });
+    // FALLBACK: Check if the last stored message is actually a completion that was
+    // saved but never processed (race condition where message was stored but
+    // extractJSON failed or the completion handler never fired).
+    const lastAssistantMsg = [...messages].reverse().find((m: any) => m.role === 'assistant');
+    if (lastAssistantMsg) {
+      const parsed = extractJSON(lastAssistantMsg.content) as { status?: string; spec?: object; agents?: any[]; execution_plan?: object } | null;
+      if (parsed && parsed.status === 'complete') {
+        console.log('[Planning Poll] FALLBACK: Found unprocessed completion in stored messages — handling now');
+        const { firstAgentId, parsed: fullParsed, dispatchError } = await handlePlanningCompletion(taskId, parsed, messages);
+        return NextResponse.json({
+          hasUpdates: true,
+          complete: true,
+          spec: fullParsed.spec,
+          agents: fullParsed.agents,
+          executionPlan: fullParsed.execution_plan,
+          messages,
+          autoDispatched: !!firstAgentId,
+          dispatchError,
+        });
+      }
+    }
+
+    // Check for stale planning — if no new messages for >10 minutes, flag it
+    const lastMsgTimestamp = messages.length > 0 ? messages[messages.length - 1].timestamp : null;
+    const stalePlanningMs = 10 * 60 * 1000; // 10 minutes
+    const isStalePlanning = lastMsgTimestamp && (Date.now() - lastMsgTimestamp) > stalePlanningMs;
+
+    console.log('[Planning Poll] No new messages found', isStalePlanning ? '(STALE — over 10min since last message)' : '');
+    return NextResponse.json({ 
+      hasUpdates: false,
+      stalePlanning: isStalePlanning || undefined,
+      staleSinceMs: isStalePlanning ? (Date.now() - lastMsgTimestamp) : undefined,
+    });
   } catch (error) {
     console.error('Failed to poll for updates:', error);
     return NextResponse.json({ error: 'Failed to poll for updates' }, { status: 500 });

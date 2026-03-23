@@ -7,6 +7,111 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.1] - 2026-03-22
+
+### Fixed
+- **Schema syntax error on fresh DB init** — Missing `);` between `user_task_reads` and `product_program_variants` table definitions caused `near "CREATE": syntax error` on startup. Artifact from PR #89 merge resolution.
+- **Pending migrations 023-027 not applied** — Migration 022 ID collision (old `error_reports` vs new `health_scores`) prevented new migrations from running. Fixed migration records and applied missing ALTER TABLE columns (`similarity_flag`, `auto_suppressed`, `variant_id`, `batch_review_threshold`, `health_weight_config`).
+
+---
+
+## [2.3.0] - 2026-03-22
+
+### Added
+- **Idea Similarity Detection & Deduplication** — New ideas are compared against existing ideas using text similarity. Ideas >90% similar to previously rejected ideas are auto-suppressed. Remaining similar ideas get a warning badge. Suppression audit trail stored in `idea_suppressions` table. ([PR #88](https://github.com/crshdn/mission-control/pull/88))
+- **Operator Chat Overhaul** — Floating chat widget accessible from any page. Threaded conversations per task with `@agent` mentions, command palette (`/status`, `/nudge`, `/checkpoint`), and unread message badges. Chat inbox shows all active conversations. ([PR #89](https://github.com/crshdn/mission-control/pull/89))
+- **Swipe Undo & Batch Review** — 10-second undo window after any swipe action (full rollback including task deletion for approved ideas). Batch review mode for reviewing multiple ideas in a table view with bulk actions. Configurable batch threshold per product. ([PR #90](https://github.com/crshdn/mission-control/pull/90))
+- **Product Program A/B Testing** — Create variants of the product program and run concurrent or alternating A/B tests. Research and ideation run against each variant independently. Statistical comparison of approval rates per variant. Promote winning variant or cancel test. ([PR #91](https://github.com/crshdn/mission-control/pull/91))
+- **Automated Rollback Pipeline** — GitHub webhook listens for merged PRs, CI failures, and status events. Post-merge health monitoring with configurable check intervals. Auto-creates revert PRs via GitHub API when failures detected. Rollback history with acknowledgment flow. ([PR #92](https://github.com/crshdn/mission-control/pull/92))
+- **Activity Dashboard Workspace Picker** — `/activity` page lists all workspaces with active/total task counts instead of hardcoding to the first workspace. ([PR #95](https://github.com/crshdn/mission-control/pull/95))
+
+### Fixed
+- **Knowledge entries FK on task delete** — `knowledge_entries.task_id` now nullified when a task is deleted, preventing dangling foreign key references. ([PR #93](https://github.com/crshdn/mission-control/pull/93))
+- **HMAC timing attack in GitHub webhook** — Signature verification now uses `crypto.timingSafeEqual()` instead of string equality comparison.
+- **Swipe undo rebuilds preferences & health** — Undoing a swipe now triggers preference model rebuild and health score recalculation, keeping both in sync.
+
+---
+
+## [2.2.1] - 2026-03-22
+
+### Added
+- **Health Check Endpoints** — `GET /api/health` (unauthenticated summary, authenticated full detail) and `GET /api/health/metrics` (Prometheus text exposition). Checks DB integrity, gateway connectivity, agent status, task queue depth, research cycle freshness, and cost cap utilization. ([PR #87](https://github.com/crshdn/mission-control/pull/87))
+- **Database Backup API** — On-demand backup creation, listing, and restoration via `/api/admin/backups`. Optional S3 upload support. Backup management UI in Settings page. ([PR #86](https://github.com/crshdn/mission-control/pull/86))
+
+### Fixed
+- **Build error from backup PR** — `@aws-sdk/client-s3` added as dependency and webpack external so dynamic imports resolve at build time.
+- **Research health query** — `MAX(id)` on UUID columns replaced with `MAX(started_at)` to correctly identify the latest research cycle per product.
+- **Repo hygiene** — Removed committed `.mc-workspace.json` and `db-backups/` binaries. Added `db-backups/`, `.tmp/`, `.mc-workspace.json` to `.gitignore`.
+- **Redundant DB writable check** — Removed separate `SELECT 1` test in health check; writable status derived from integrity check result.
+
+---
+
+## [2.2.0] - 2026-03-21
+
+### Added
+- **Preference Learning (Karpathy AutoResearch Pattern)** — Swipe history is now analyzed after every swipe to build a per-product preference model. The model captures category approval rates, complexity preferences, impact score thresholds, tag patterns, and examples of approved/rejected ideas. The resulting `learned_preferences_md` is injected into both research and ideation prompts, steering future cycles toward what the user actually wants.
+- **Preference Backfill API** — `POST /api/products/backfill-preferences` rebuilds preference models for all products with existing swipe history. Used to bootstrap models from historical data.
+
+### Fixed
+- **Token counts always showing 0** — Research and ideation cycles now pass token usage (`promptTokens`, `completionTokens`, `totalTokens`) and model name through to `emitAutopilotActivity()` and `recordCostEvent()`. Previously the usage data was extracted from the gateway but discarded before storage. Added debug logging (`[LLM] Response usage:`) to verify gateway returns usage data.
+
+---
+
+## [2.1.1] - 2026-03-21
+
+### Fixed
+- **Ideation CHECK constraint failure** — LLM occasionally returns idea categories not in the schema's allowed list (e.g. `"analytics"`, `"design"`). Categories are now validated against the allowed set before insert, falling back to `"feature"` for unrecognized values.
+
+---
+
+## [2.1.0] - 2026-03-21
+
+### Added
+- **Toast Notification System** — Global toast notifications surface errors, warnings, and status updates in real-time. Error toasts persist until dismissed and include a "Report this issue" action.
+- **Error Reporting via Email** — Users can report issues directly from error toasts or inline error messages. Clicking "Report this issue" opens the default email client pre-filled with error details and recent system logs (autopilot activity, failed cycles, task activities). Reports go to hello@autensa.com.
+- **Pending Ideas Badge** — Product cards on the Autopilot listing page (`/autopilot`) now show a red notification badge with the count of pending ideas awaiting review, similar to iPhone app icon badges.
+- **SSE Error Surfacing** — Autopilot errors and cost cap warnings broadcast via Server-Sent Events now appear as toast notifications in real-time, even if the user is on a different tab.
+- **`useErrorReport` Hook** — Reusable hook for triggering error toasts with one-click email reporting from any component.
+
+### Fixed
+- **Autopilot Pipeline Stops on Navigation** — The research-to-ideation pipeline was orchestrated entirely client-side. Navigating away from the product page killed the polling loop and ideation was never triggered. Pipeline orchestration now runs server-side: research auto-chains into ideation on completion. The UI is a status viewer, not the orchestrator. Multiple products can run pipelines concurrently.
+- **LLM Retry on Timeout/Network Errors** — The `complete()` function in `llm.ts` now retries up to 3 times with exponential backoff (5s, 10s, 20s) on `AbortError` and network failures (`ECONNREFUSED`, `ECONNRESET`, `fetch failed`). Non-retryable errors (4xx, parse errors) fail immediately. This fixes the "Roofs in a Box" ideation failures caused by OpenClaw WebSocket instability.
+
+### Improved
+- **Fire-and-Forget Run Now** — The "Run Now" button sends a single POST request and returns immediately. The server handles the full research → ideation pipeline. The UI polls for status every 5s to update the button state, but navigation no longer interrupts the pipeline.
+
+---
+
+## [2.0.2] - 2026-03-21
+
+### Added
+- **Session Key Prefix UI** — Contributed by [@balaji-g42](https://github.com/balaji-g42). Agents now have a configurable `session_key_prefix` field in the Agent Modal, allowing custom OpenClaw session routing per agent. Dynamically created agents inherit the prefix from the workspace's master agent. Planning sessions resolve the prefix with a priority chain: custom request prefix > assigned agent > master agent > default (`agent:main:`). ([PR #85](https://github.com/crshdn/mission-control/pull/85))
+
+### Fixed
+- **Session Key Prefix Sanitization** — Empty or whitespace-only prefix values are stored as `null` so fallback defaults work correctly. Missing trailing colons are auto-appended to prevent malformed session keys (e.g., `agent:mainplanning:` instead of `agent:main:planning:`).
+
+---
+
+## [2.0.1] - 2026-03-21
+
+### Added
+- **Product Settings Modal** — Gear icon (⚙️) in the product dashboard header opens an inline settings modal. Edit product name, description, repository URL, live URL, default branch, build mode, and icon without leaving the dashboard. Saves via the existing PATCH `/api/products/[id]` endpoint.
+- **Import README.md in New Product Wizard** — "Import from README" button on the Product Program step (step 2). Fetches the repository's README via GitHub API (public repos) or falls back to the local filesystem (`~/projects/<repo-name>/README.md` for private repos). Pre-populates the product program textarea. New API route: `POST /api/products/import-readme`.
+- **Auto-Generate Product Description** — "Auto-generate" button on the New Product basics step. Sends the repo URL and live URL to a new API endpoint that fetches README + website content, sends it to the LLM via OpenClaw Gateway's `/v1/chat/completions`, and returns a concise 1-2 sentence description. New API route: `POST /api/products/generate-description`.
+- **Improved Private Repo Warning** — Repo validation warning now explicitly tells users the repo may be private: *"Could not verify this repository — it may be private or may not exist. Private repos work fine, the agent will use local access."*
+
+### Fixed
+- **Dispatch Hang on Stage Transitions** — All server-side dispatch fetch calls now have a 30-second `AbortSignal.timeout`. Previously, if the OpenClaw gateway was slow or unresponsive during testing/review/verification transitions, the PATCH request would hang indefinitely — potentially crashing the server. The timeout applies to all 10 dispatch call sites across the codebase. ([#84](https://github.com/crshdn/mission-control/issues/84))
+- **Stale OpenClaw Connection After Timeout** — Added `forceReconnect()` to the OpenClaw WebSocket client. When a dispatch fails (timeout or connection error), the client now tears down the stale WebSocket and clears all pending requests, so the next dispatch attempt gets a fresh connection instead of reusing a dead one.
+- **Stale Markdown in Agent Modal** — The Agent Modal now fetches fresh `soul_md`, `user_md`, and `agents_md` from the API each time it opens, instead of displaying cached data from the Zustand store that was loaded once at page load. ([#75](https://github.com/crshdn/mission-control/issues/75))
+
+### Improved
+- **Pre-Migration Database Backups** — Contributed by [@cgluttrell](https://github.com/cgluttrell). Before running any pending migrations, a timestamped backup is created using SQLite's `VACUUM INTO` (safe for WAL-mode databases). Keeps the last 5 backups. If backup fails, migrations abort entirely. ([PR #79](https://github.com/crshdn/mission-control/pull/79))
+- **Migration 013 Data Guard** — Contributed by [@cgluttrell](https://github.com/cgluttrell). The destructive "fresh start" migration now checks for existing tasks and locally-configured agents before running. Databases with real data are preserved instead of silently wiped on upgrade. ([PR #79](https://github.com/crshdn/mission-control/pull/79))
+- **Static Device Identity Path** — Contributed by [@org4lap](https://github.com/org4lap). Removed dynamic `filePath` parameter from `loadOrCreateDeviceIdentity()`, binding file operations to the module-level constant. Resolves TP1004 static analysis warning. ([PR #82](https://github.com/crshdn/mission-control/pull/82))
+
+---
+
 ## [2.0.0] - 2026-03-20
 
 ### 🚀 Product Autopilot — The World's First Autonomous Product Engine
@@ -415,6 +520,7 @@ This is the first stable, tested, and working release of Mission Control.
 
 ---
 
+[2.0.1]: https://github.com/crshdn/mission-control/compare/v2.0.0...v2.0.1
 [2.0.0]: https://github.com/crshdn/mission-control/compare/v1.5.3...v2.0.0
 [1.4.0]: https://github.com/crshdn/mission-control/compare/v1.3.1...v1.4.0
 [1.3.1]: https://github.com/crshdn/mission-control/releases/tag/v1.3.1

@@ -28,7 +28,7 @@ I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.clo
   <a href="https://missioncontrol.ghray.com"><strong>🎮 Live Demo</strong></a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-docker">Docker</a> •
-  <a href="#-whats-new-in-v20">What's New</a> •
+  <a href="#-whats-new-in-v231">What's New</a> •
   <a href="#-features">Features</a> •
   <a href="#-how-it-works">How It Works</a> •
   <a href="#-configuration">Configuration</a> •
@@ -41,7 +41,77 @@ I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.clo
 
 ---
 
-## 🚀 What's New in v2.0
+## 🚀 What's New in v2.3.1
+
+### Bug Fix
+- **Schema syntax error** — Fixed missing `);` in schema that caused startup errors on fresh databases. Applied pending migration columns for similarity detection, A/B testing, and batch review.
+
+### v2.3.0 Highlights
+
+### Idea Similarity Detection
+- **Auto-deduplication** — New ideas are compared against existing ones. Ideas >90% similar to rejected ideas are auto-suppressed. Similar ideas get a warning badge. Full audit trail.
+
+### Operator Chat Widget
+- **Chat from anywhere** — Floating chat widget with threaded conversations per task. `@agent` mentions, command palette (`/status`, `/nudge`, `/checkpoint`), and unread badges.
+
+### Swipe Undo & Batch Review
+- **10-second undo** — Full rollback of any swipe including task deletion. Batch review mode for table-view multi-select actions.
+
+### Product Program A/B Testing
+- **Test your product program** — Run concurrent or alternating A/B tests on product program variants. Research and ideation run against each variant. Statistical comparison of approval rates.
+
+### Automated Rollback Pipeline
+- **Auto-revert failed deploys** — GitHub webhook monitors merged PRs. Post-merge health checks. Auto-creates revert PRs when failures detected.
+
+### Activity Dashboard Picker
+- **Workspace selector** — `/activity` lists all workspaces instead of hardcoding to one.
+
+### Previous Releases
+
+<details>
+<summary>v2.2.1 — Health Check & Backup API</summary>
+
+- `/api/health` and `/api/health/metrics` for monitoring integration
+- Database backup API with optional S3 upload
+</details>
+
+<details>
+<summary>v2.2.0 — Preference Learning & Token Tracking</summary>
+
+- Swipe-driven preference learning (Karpathy AutoResearch pattern)
+- Token counts now recorded in activity log and cost tracker
+</details>
+
+<details>
+<summary>v2.1.x — Server-Side Pipeline, Error Reporting & Badges</summary>
+
+- Server-side research → ideation pipeline (fire-and-forget)
+- LLM retry with exponential backoff
+- Toast notifications with one-click error reporting
+- Pending ideas badges on product cards
+- One-click error reporting via mailto (pre-filled with system logs)
+- Pending ideas badge on product cards (iPhone-style notification count)
+</details>
+
+<details>
+<summary>v2.0.2 — Session Key Prefix Support</summary>
+
+- Session Key Prefix UI for custom OpenClaw session routing. ([@balaji-g42](https://github.com/balaji-g42))
+- Session key sanitization — empty prefixes fall back to defaults.
+</details>
+
+<details>
+<summary>v2.0.1 — Dispatch Stability & Community Contributions</summary>
+
+- **Product Settings Modal** — Edit product config inline via the gear icon.
+- **Import README / Auto-Generate Description** — One-click README import and AI-generated descriptions in the New Product Wizard.
+- **Dispatch hang fix** — 30s timeout on all dispatch calls; stale WebSocket force-reconnect.
+- **Pre-migration database backups** — Automatic timestamped backups before migrations. ([@cgluttrell](https://github.com/cgluttrell))
+- **Migration 013 data guard** — Destructive migration skips databases with existing data. ([@cgluttrell](https://github.com/cgluttrell))
+- **Static device identity path** — Removes dynamic filesystem path parameter. ([@org4lap](https://github.com/org4lap))
+</details>
+
+### v2.0 Highlights
 
 Autensa v2 is a ground-up expansion from task orchestration dashboard to **the world's first autonomous product improvement engine**. It researches your market, generates feature ideas, lets you decide with a swipe, and builds them — automatically.
 
@@ -465,7 +535,7 @@ OPENCLAW_GATEWAY_TOKEN=your-shared-token
 
 ## 🗄 Database
 
-SQLite database auto-created at `./mission-control.db`. Migrations run automatically on startup (21 migrations for v2.0).
+SQLite database auto-created at `./mission-control.db`. Migrations run automatically on startup (21 migrations). As of v2.0.1, a timestamped backup is created before any pending migration runs.
 
 ```bash
 # Reset (start fresh)
@@ -840,6 +910,12 @@ If Autensa has been useful to you, consider buying me a coffee!
 </a>
 
 ---
+
+<p align="center">
+  <a href="https://discord.gg/TJ7GtMCx">
+    <img src="https://img.shields.io/badge/Join_Our_Discord-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Join Our Discord" />
+  </a>
+</p>
 
 <p align="center">
   <strong>Stop managing a backlog. Start shipping on autopilot.</strong> 🚀

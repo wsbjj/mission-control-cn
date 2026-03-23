@@ -1,10 +1,11 @@
 'use client';
 
-import {useState, useEffect} from 'react';
-import {Plus, Rocket, ArrowRight} from 'lucide-react';
-import {useTranslations} from 'next-intl';
-import {Link} from '@/i18n/navigation';
-import type {Product, ProductStatus} from '@/lib/types';
+import { useState, useEffect } from 'react';
+import { Plus, Rocket, ArrowRight } from 'lucide-react';
+import { useTranslations } from 'next-intl';
+import { Link } from '@/i18n/navigation';
+import { HealthBadge } from '@/components/autopilot/HealthBadge';
+import type { Product, ProductStatus } from '@/lib/types';
 
 function productStatusLabel(status: ProductStatus, t: (key: 'statusActive' | 'statusPaused' | 'statusArchived') => string) {
   if (status === 'active') return t('statusActive');
@@ -16,18 +17,55 @@ export default function AutopilotPage() {
   const t = useTranslations('autopilotIndex');
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
+  const [pendingCounts, setPendingCounts] = useState<Record<string, number>>({});
+  const [healthScores, setHealthScores] = useState<Record<string, number>>({});
 
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch('/api/products');
-        if (res.ok) setProducts(await res.json());
+        if (res.ok) {
+          const prods: Product[] = await res.json();
+          setProducts(prods);
+
+          // Fetch pending idea counts in parallel
+          const counts: Record<string, number> = {};
+          await Promise.all(prods.map(async (p) => {
+            try {
+              const r = await fetch(`/api/products/${p.id}/ideas/pending`);
+              if (r.ok) {
+                const ideas = await r.json();
+                if (Array.isArray(ideas) && ideas.length > 0) counts[p.id] = ideas.length;
+              }
+            } catch { /* skip */ }
+          }));
+          setPendingCounts(counts);
+
+          // Fetch health scores
+          try {
+            const healthRes = await fetch('/api/products/health-scores');
+            if (healthRes.ok) {
+              const scores = await healthRes.json();
+              setHealthScores(scores);
+            }
+          } catch { /* skip */ }
+        }
       } catch (error) {
         console.error('Failed to load products:', error);
       } finally {
         setLoading(false);
       }
     })();
+  }, []);
+
+  // Listen for SSE health score updates
+  useEffect(() => {
+    function handleHealthUpdate(e: Event) {
+      const { productId, score } = (e as CustomEvent).detail;
+      setHealthScores(prev => ({ ...prev, [productId]: score }));
+    }
+    window.addEventListener('health-score-updated', handleHealthUpdate);
+    return () => window.removeEventListener('health-score-updated', handleHealthUpdate);
   }, []);
 
   if (loading) {
@@ -90,7 +128,14 @@ export default function AutopilotPage() {
               >
                 <div className="flex items-start justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl">{product.icon}</span>
+                    <span className="relative text-2xl">
+                      {product.icon}
+                      {pendingCounts[product.id] > 0 && (
+                        <span className="absolute -top-2 -right-2 min-w-[18px] h-[18px] flex items-center justify-center rounded-full bg-red-500 text-white text-[10px] font-bold leading-none px-1">
+                          {pendingCounts[product.id] > 99 ? '99+' : pendingCounts[product.id]}
+                        </span>
+                      )}
+                    </span>
                     <div>
                       <h3 className="font-semibold text-mc-text group-hover:text-mc-accent transition-colors">{product.name}</h3>
                       <span
@@ -106,7 +151,18 @@ export default function AutopilotPage() {
                       </span>
                     </div>
                   </div>
-                  <ArrowRight className="w-4 h-4 text-mc-text-secondary group-hover:text-mc-accent transition-colors" />
+                  <div className="flex items-center gap-2">
+                    {healthScores[product.id] !== undefined && (
+                      <Link
+                        href={`/autopilot/${product.id}/health`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:scale-110 transition-transform"
+                      >
+                        <HealthBadge score={healthScores[product.id]} size={38} />
+                      </Link>
+                    )}
+                    <ArrowRight className="w-4 h-4 text-mc-text-secondary group-hover:text-mc-accent transition-colors" />
+                  </div>
                 </div>
                 {product.description && <p className="text-sm text-mc-text-secondary line-clamp-2">{product.description}</p>}
               </Link>

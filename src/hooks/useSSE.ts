@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { useMissionControl } from '@/lib/store';
 import { debug } from '@/lib/debug';
+import { showToast } from '@/components/Toast';
 import type { SSEEvent, Task } from '@/lib/types';
 
 export function useSSE() {
@@ -142,9 +143,46 @@ export function useSSE() {
             case 'idea_shipped':
             case 'maybe_resurfaced':
             case 'preference_updated':
-            case 'cost_cap_warning':
-            case 'cost_cap_exceeded':
               debug.sse(`Autopilot event: ${sseEvent.type}`, sseEvent.payload);
+              // Surface autopilot errors as toasts
+              if (sseEvent.type === 'autopilot_activity') {
+                const p = sseEvent.payload as { eventType?: string; message?: string; detail?: string };
+                if (p.eventType === 'error') {
+                  showToast({
+                    type: 'error',
+                    title: p.message || 'Autopilot error',
+                    message: p.detail,
+                    duration: 0,
+                  });
+                }
+              }
+              break;
+
+            case 'health_score_updated':
+              debug.sse('Health score updated', sseEvent.payload);
+              // Dispatch custom event for health score listeners
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('health-score-updated', { detail: sseEvent.payload }));
+              }
+              break;
+
+            case 'cost_cap_warning':
+              debug.sse('Cost cap warning', sseEvent.payload);
+              showToast({
+                type: 'warning',
+                title: 'Cost cap warning',
+                message: (sseEvent.payload as { message?: string }).message || 'Approaching cost limit',
+              });
+              break;
+
+            case 'cost_cap_exceeded':
+              debug.sse('Cost cap exceeded', sseEvent.payload);
+              showToast({
+                type: 'error',
+                title: 'Cost cap exceeded',
+                message: (sseEvent.payload as { message?: string }).message || 'Operations paused — cost limit reached',
+                duration: 0,
+              });
               break;
 
             default:

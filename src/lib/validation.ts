@@ -117,6 +117,7 @@ export const UpdateProductSchema = z.object({
   default_branch: z.string().max(200).optional(),
   cost_cap_per_task: z.number().min(0).optional().nullable(),
   cost_cap_monthly: z.number().min(0).optional().nullable(),
+  batch_review_threshold: z.number().int().min(1).max(100).optional(),
 });
 
 export const SwipeActionSchema = z.object({

@@ -37,10 +37,10 @@ export async function GET(request: NextRequest) {
       }, 30000);
 
       // Agent health check every 2 minutes (only from the first connected client to avoid duplicates)
-      const healthCheckInterval = setInterval(() => {
+      const healthCheckInterval = setInterval(async () => {
         try {
           if (getActiveConnectionCount() > 0) {
-            runHealthCheckCycle();
+            await runHealthCheckCycle();
           }
         } catch (error) {
           console.error('[SSE] Health check cycle error:', error);

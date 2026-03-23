@@ -108,7 +108,7 @@ export function WorkspaceDashboard() {
                 Autopilot
               </Link>
               <Link
-                href={workspaces.length > 0 ? `/workspace/${workspaces[0].slug}/activity` : '/workspace/default/activity'}
+                href="/activity"
                 className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm"
               >
                 <Activity className="w-4 h-4" />

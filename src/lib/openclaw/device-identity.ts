@@ -55,10 +55,11 @@ function generateIdentity(): DeviceIdentity {
 }
 
 // Load existing identity or create a new one
-export function loadOrCreateDeviceIdentity(filePath: string = IDENTITY_FILE): DeviceIdentity {
+export function loadOrCreateDeviceIdentity(): DeviceIdentity {
+  const identityPath = IDENTITY_FILE;
   try {
-    if (fs.existsSync(filePath)) {
-      const raw = fs.readFileSync(filePath, 'utf8');
+    if (fs.existsSync(identityPath)) {
+      const raw = fs.readFileSync(identityPath, 'utf8');
       const parsed = JSON.parse(raw);
       if (parsed?.version === 1 && parsed.deviceId && parsed.publicKeyPem && parsed.privateKeyPem) {
         // Verify deviceId matches public key
@@ -75,7 +76,7 @@ export function loadOrCreateDeviceIdentity(filePath: string = IDENTITY_FILE): De
   }
 
   const identity = generateIdentity();
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.mkdirSync(path.dirname(identityPath), { recursive: true });
   const stored = {
     version: 1,
     deviceId: identity.deviceId,
@@ -83,7 +84,7 @@ export function loadOrCreateDeviceIdentity(filePath: string = IDENTITY_FILE): De
     privateKeyPem: identity.privateKeyPem,
     createdAtMs: Date.now(),
   };
-  fs.writeFileSync(filePath, JSON.stringify(stored, null, 2) + '\n', { mode: 0o600 });
+  fs.writeFileSync(identityPath, JSON.stringify(stored, null, 2) + '\n', { mode: 0o600 });
   return identity;
 }
 

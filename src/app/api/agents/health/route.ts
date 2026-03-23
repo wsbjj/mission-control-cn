@@ -16,7 +16,7 @@ export async function GET() {
 // POST /api/agents/health — Trigger a health check cycle
 export async function POST() {
   try {
-    const results = runHealthCheckCycle();
+    const results = await runHealthCheckCycle();
     return NextResponse.json({
       checked: results.length,
       results: results.map(r => ({

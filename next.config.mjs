@@ -10,6 +10,7 @@ const nextConfig = {
   webpack: (config) => {
     config.externals.push({
       'better-sqlite3': 'commonjs better-sqlite3',
+      '@aws-sdk/client-s3': 'commonjs @aws-sdk/client-s3',
     });
     return config;
   },

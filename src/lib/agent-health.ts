@@ -40,9 +40,9 @@ export function checkAgentHealth(agentId: string): AgentHealthState {
     if (!anySession) return 'zombie';
   }
 
-  // Check last activity timestamp
+  // Check last REAL activity (exclude health check logs — they reset the clock and prevent stuck detection)
   const lastActivity = queryOne<{ created_at: string }>(
-    `SELECT created_at FROM task_activities WHERE task_id = ? ORDER BY created_at DESC LIMIT 1`,
+    `SELECT created_at FROM task_activities WHERE task_id = ? AND message NOT LIKE 'Agent health:%' ORDER BY created_at DESC LIMIT 1`,
     [activeTask.id]
   );
 
@@ -51,7 +51,7 @@ export function checkAgentHealth(agentId: string): AgentHealthState {
     if (minutesSince > STUCK_THRESHOLD_MINUTES) return 'stuck';
     if (minutesSince > STALL_THRESHOLD_MINUTES) return 'stalled';
   } else {
-    // No activity at all — check how long the task has been in progress
+    // No real activity at all — check how long the task has been in progress
     const taskAge = (Date.now() - new Date(activeTask.updated_at).getTime()) / 60000;
     if (taskAge > STUCK_THRESHOLD_MINUTES) return 'stuck';
     if (taskAge > STALL_THRESHOLD_MINUTES) return 'stalled';
@@ -63,7 +63,7 @@ export function checkAgentHealth(agentId: string): AgentHealthState {
 /**
  * Run a full health check cycle across all agents with active tasks.
  */
-export function runHealthCheckCycle(): AgentHealth[] {
+export async function runHealthCheckCycle(): Promise<AgentHealth[]> {
   const activeAgents = queryAll<{ id: string }>(
     `SELECT DISTINCT assigned_agent_id as id FROM tasks WHERE status IN ('assigned', 'in_progress', 'testing', 'verification') AND assigned_agent_id IS NOT NULL`
   );
@@ -143,6 +143,53 @@ export function runHealthCheckCycle(): AgentHealth[] {
     }
   }
 
+  // Sweep for orphaned assigned tasks — planning complete but never dispatched
+  const ASSIGNED_STALE_MINUTES = 2;
+  const orphanedTasks = queryAll<Task>(
+    `SELECT * FROM tasks 
+     WHERE status = 'assigned' 
+       AND planning_complete = 1 
+       AND (julianday('now') - julianday(updated_at)) * 1440 > ?`,
+    [ASSIGNED_STALE_MINUTES]
+  );
+
+  for (const task of orphanedTasks) {
+    console.log(`[Health] Orphaned assigned task detected: "${task.title}" (${task.id}) — stale for >${ASSIGNED_STALE_MINUTES}min, auto-dispatching`);
+    
+    const missionControlUrl = getMissionControlUrl();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (process.env.MC_API_TOKEN) {
+      headers['Authorization'] = `Bearer ${process.env.MC_API_TOKEN}`;
+    }
+
+    try {
+      const res = await fetch(`${missionControlUrl}/api/tasks/${task.id}/dispatch`, {
+        method: 'POST',
+        headers,
+        signal: AbortSignal.timeout(30_000),
+      });
+
+      if (res.ok) {
+        console.log(`[Health] Auto-dispatched orphaned task "${task.title}"`);
+        run(
+          `INSERT INTO task_activities (id, task_id, agent_id, activity_type, message, created_at)
+           VALUES (?, ?, ?, 'status_changed', 'Auto-dispatched by health sweeper (was stuck in assigned)', ?)`,
+          [uuidv4(), task.id, task.assigned_agent_id, now]
+        );
+      } else {
+        const errorText = await res.text();
+        console.error(`[Health] Failed to auto-dispatch orphaned task "${task.title}": ${errorText}`);
+        // Record the failure so it shows in the UI
+        run(
+          `UPDATE tasks SET planning_dispatch_error = ?, updated_at = ? WHERE id = ?`,
+          [`Health sweeper dispatch failed: ${errorText.substring(0, 200)}`, now, task.id]
+        );
+      }
+    } catch (err) {
+      console.error(`[Health] Auto-dispatch error for orphaned task "${task.title}":`, (err as Error).message);
+    }
+  }
+
   // Also set idle agents
   const idleAgents = queryAll<{ id: string }>(
     `SELECT id FROM agents WHERE status = 'standby' AND id NOT IN (SELECT assigned_agent_id FROM tasks WHERE status IN ('assigned', 'in_progress', 'testing', 'verification') AND assigned_agent_id IS NOT NULL)`
@@ -211,6 +258,7 @@ export async function nudgeAgent(agentId: string): Promise<{ success: boolean; e
     const res = await fetch(`${missionControlUrl}/api/tasks/${activeTask.id}/dispatch`, {
       method: 'POST',
       headers,
+      signal: AbortSignal.timeout(30_000),
     });
 
     if (!res.ok) {

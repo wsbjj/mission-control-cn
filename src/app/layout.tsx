@@ -2,6 +2,8 @@ import type {Metadata} from 'next';
 import './globals.css'; // 全局样式导入 / Import global styles
 import {JetBrains_Mono} from 'next/font/google'; // 字体导入 / Font import
 import DemoBanner from '@/components/DemoBanner'; // Demo 横幅组件 / Demo banner component
+import {ToastProvider} from '@/components/Toast';
+import {ChatProvider} from '@/components/chat/ChatProvider';
 
 // 初始化 JetBrains Mono 字体配置 / Initialize JetBrains Mono font configuration
 const jetbrainsMono = JetBrains_Mono({
@@ -29,8 +31,12 @@ export default function RootLayout({
   return (
     <html lang="en" className={jetbrainsMono.variable} suppressHydrationWarning>
       <body className={`${jetbrainsMono.className} bg-mc-bg text-mc-text min-h-screen`}>
-        <DemoBanner /> {/* 全局 Demo 横幅 / Global demo banner */}
-        {children}
+        <ToastProvider>
+          <DemoBanner /> {/* 全局 Demo 横幅 / Global demo banner */}
+          <ChatProvider>
+            {children}
+          </ChatProvider>
+        </ToastProvider>
       </body>
     </html>
   );

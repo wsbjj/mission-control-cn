@@ -53,6 +53,7 @@ export function updateProduct(id: string, updates: Partial<{
   default_branch: string;
   cost_cap_per_task: number | null;
   cost_cap_monthly: number | null;
+  batch_review_threshold: number;
 }>): Product | undefined {
   const fields: string[] = [];
   const values: unknown[] = [];

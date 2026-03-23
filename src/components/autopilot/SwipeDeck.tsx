@@ -1,12 +1,23 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { ListChecks } from 'lucide-react';
 import { IdeaCard } from './IdeaCard';
+import { UndoToast } from './UndoToast';
 import { useSwipe } from '@/hooks/useSwipe';
 import type { Idea, SwipeAction } from '@/lib/types';
 
 interface SwipeDeckProps {
   productId: string;
+}
+
+interface LastSwipe {
+  swipeId: string;
+  ideaId: string;
+  action: SwipeAction;
+  idea: Idea;
+  index: number; // position in deck when swiped
 }
 
 export function SwipeDeck({ productId }: SwipeDeckProps) {
@@ -15,6 +26,8 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
   const [loading, setLoading] = useState(true);
   const [animatingOut, setAnimatingOut] = useState<string | null>(null);
   const [sessionStats, setSessionStats] = useState({ approved: 0, rejected: 0, maybe: 0, fired: 0 });
+  const [lastSwipe, setLastSwipe] = useState<LastSwipe | null>(null);
+  const [pendingCount, setPendingCount] = useState(0);
 
   const loadDeck = async () => {
     try {
@@ -23,6 +36,7 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
         const data = await res.json();
         setIdeas(data);
         setCurrentIndex(0);
+        setPendingCount(data.length);
       }
     } catch (error) {
       console.error('Failed to load swipe deck:', error);
@@ -39,6 +53,9 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
     const idea = ideas[currentIndex];
     if (!idea) return;
 
+    // Clear any existing undo toast (new swipe supersedes previous undo)
+    setLastSwipe(null);
+
     const directionMap: Record<string, string> = {
       approve: 'right',
       reject: 'left',
@@ -48,11 +65,24 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
     setAnimatingOut(directionMap[action]);
 
     try {
-      await fetch(`/api/products/${productId}/swipe`, {
+      const res = await fetch(`/api/products/${productId}/swipe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ idea_id: idea.id, action, notes }),
       });
+
+      if (res.ok) {
+        const result = await res.json();
+
+        // Store for undo
+        setLastSwipe({
+          swipeId: result.swipeId,
+          ideaId: idea.id,
+          action,
+          idea,
+          index: currentIndex,
+        });
+      }
 
       setSessionStats(prev => ({
         ...prev,
@@ -68,6 +98,37 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
       setCurrentIndex(prev => prev + 1);
     }, 300);
   }, [ideas, currentIndex, productId]);
+
+  const handleUndo = useCallback((restoredIdea: unknown) => {
+    if (!lastSwipe) return;
+
+    const idea = restoredIdea as Idea;
+    const action = lastSwipe.action;
+
+    // Insert the idea back at the current position (before the current card)
+    setIdeas(prev => {
+      const newIdeas = [...prev];
+      // Insert before current index
+      newIdeas.splice(currentIndex, 0, idea);
+      return newIdeas;
+    });
+
+    // Move index back to show the restored card
+    setCurrentIndex(prev => prev);
+
+    // Decrement the session stats
+    setSessionStats(prev => ({
+      ...prev,
+      [action === 'fire' ? 'fired' : action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'maybe']:
+        Math.max(0, prev[action === 'fire' ? 'fired' : action === 'approve' ? 'approved' : action === 'reject' ? 'rejected' : 'maybe'] - 1),
+    }));
+
+    setLastSwipe(null);
+  }, [lastSwipe, currentIndex]);
+
+  const handleUndoExpire = useCallback(() => {
+    setLastSwipe(null);
+  }, []);
 
   const swipeDirectionToAction = useCallback((direction: string | null): SwipeAction | null => {
     switch (direction) {
@@ -88,6 +149,10 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
 
   const currentIdea = ideas[currentIndex];
   const remaining = ideas.length - currentIndex;
+
+  // Batch review threshold — default 10
+  const BATCH_THRESHOLD = 10;
+  const showReviewAll = pendingCount >= BATCH_THRESHOLD;
 
   if (loading) {
     return (
@@ -157,9 +222,20 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
 
   return (
     <div className="flex flex-col items-center space-y-6">
-      {/* Progress */}
-      <div className="text-sm text-mc-text-secondary">
-        {currentIndex + 1} / {ideas.length} ideas
+      {/* Progress + Review All */}
+      <div className="flex items-center gap-4">
+        <div className="text-sm text-mc-text-secondary">
+          {currentIndex + 1} / {ideas.length} ideas
+        </div>
+        {showReviewAll && (
+          <Link
+            href={`/autopilot/${productId}/review`}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-mc-accent/20 text-mc-accent rounded-lg hover:bg-mc-accent/30 transition-colors"
+          >
+            <ListChecks className="w-3.5 h-3.5" />
+            Review All ({pendingCount})
+          </Link>
+        )}
       </div>
 
       {/* Card stack */}
@@ -215,6 +291,21 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
       <div className="text-xs text-mc-text-secondary/50">
         &larr; Pass &middot; &darr; Maybe &middot; &rarr; Yes &middot; &uarr; Build Now
       </div>
+
+      {/* Undo toast — fixed at bottom */}
+      {lastSwipe && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50">
+          <UndoToast
+            key={lastSwipe.swipeId}
+            swipeId={lastSwipe.swipeId}
+            ideaTitle={lastSwipe.idea.title}
+            action={lastSwipe.action}
+            productId={productId}
+            onUndo={handleUndo}
+            onExpire={handleUndoExpire}
+          />
+        </div>
+      )}
     </div>
   );
 }

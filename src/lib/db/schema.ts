@@ -336,6 +336,8 @@ CREATE TABLE IF NOT EXISTS products (
   default_branch TEXT DEFAULT 'main',
   cost_cap_per_task REAL,
   cost_cap_monthly REAL,
+  health_weight_config TEXT,
+  batch_review_threshold INTEGER DEFAULT 10,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -423,8 +425,36 @@ CREATE TABLE IF NOT EXISTS ideas (
   user_notes TEXT,
   resurfaced_from TEXT REFERENCES ideas(id),
   resurfaced_reason TEXT,
+  similarity_flag TEXT,
+  auto_suppressed INTEGER DEFAULT 0,
+  suppress_reason TEXT,
+  variant_id TEXT REFERENCES product_program_variants(id),
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Idea embeddings: text embeddings for similarity detection
+CREATE TABLE IF NOT EXISTS idea_embeddings (
+  id TEXT PRIMARY KEY,
+  idea_id TEXT NOT NULL UNIQUE REFERENCES ideas(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  embedding TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Idea suppressions: audit log of auto-suppressed duplicate ideas
+CREATE TABLE IF NOT EXISTS idea_suppressions (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  suppressed_title TEXT NOT NULL,
+  suppressed_description TEXT NOT NULL,
+  similar_to_idea_id TEXT NOT NULL REFERENCES ideas(id),
+  similarity_score REAL NOT NULL,
+  reason TEXT NOT NULL,
+  ideation_cycle_id TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
 );
 
 -- Swipe history: user decisions on ideas
@@ -621,6 +651,56 @@ CREATE TABLE IF NOT EXISTS task_notes (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Product health scores: cached composite scores + daily snapshots
+CREATE TABLE IF NOT EXISTS product_health_scores (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  overall_score REAL NOT NULL DEFAULT 0,
+  research_freshness_score REAL DEFAULT 0,
+  pipeline_depth_score REAL DEFAULT 0,
+  swipe_velocity_score REAL DEFAULT 0,
+  build_success_score REAL DEFAULT 0,
+  cost_efficiency_score REAL DEFAULT 0,
+  component_data TEXT,
+  snapshot_date TEXT,
+  calculated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- User task read tracking (for unread message badges)
+CREATE TABLE IF NOT EXISTS user_task_reads (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'operator',
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  last_read_at TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, task_id)
+);
+
+-- Product Program variants for A/B testing
+CREATE TABLE IF NOT EXISTS product_program_variants (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  is_control INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Product A/B tests
+CREATE TABLE IF NOT EXISTS product_ab_tests (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  variant_a_id TEXT NOT NULL REFERENCES product_program_variants(id),
+  variant_b_id TEXT NOT NULL REFERENCES product_program_variants(id),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'concluded', 'cancelled')),
+  split_mode TEXT NOT NULL DEFAULT 'concurrent' CHECK (split_mode IN ('concurrent', 'alternating')),
+  min_swipes INTEGER NOT NULL DEFAULT 50,
+  last_variant_used TEXT,
+  winner_variant_id TEXT REFERENCES product_program_variants(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  concluded_at TEXT
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id);
@@ -666,9 +746,18 @@ CREATE INDEX IF NOT EXISTS idx_seo_keywords_product ON seo_keywords(product_id);
 CREATE INDEX IF NOT EXISTS idx_product_feedback_product ON product_feedback(product_id, processed);
 CREATE INDEX IF NOT EXISTS idx_task_notes_task ON task_notes(task_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_task_notes_pending ON task_notes(task_id, status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_ppv_product ON product_program_variants(product_id);
+CREATE INDEX IF NOT EXISTS idx_ab_tests_product ON product_ab_tests(product_id, status);
+CREATE INDEX IF NOT EXISTS idx_ideas_variant ON ideas(variant_id);
 CREATE INDEX IF NOT EXISTS idx_ideation_cycles_product ON ideation_cycles(product_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_autopilot_activity_product ON autopilot_activity_log(product_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_autopilot_activity_cycle ON autopilot_activity_log(cycle_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_workspace_ports_active ON workspace_ports(status, port);
 CREATE INDEX IF NOT EXISTS idx_workspace_merges_task ON workspace_merges(task_id);
+CREATE INDEX IF NOT EXISTS idx_health_scores_product ON product_health_scores(product_id, calculated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_health_scores_snapshot ON product_health_scores(product_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_idea_embeddings_product ON idea_embeddings(product_id);
+CREATE INDEX IF NOT EXISTS idx_idea_embeddings_idea ON idea_embeddings(idea_id);
+CREATE INDEX IF NOT EXISTS idx_idea_suppressions_product ON idea_suppressions(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_task_reads_user_task ON user_task_reads(user_id, task_id);
 `;

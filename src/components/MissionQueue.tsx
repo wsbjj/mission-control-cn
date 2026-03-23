@@ -1,10 +1,11 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import {Plus, ChevronRight, GripVertical, ArrowRightLeft, AlertTriangle} from 'lucide-react';
+import {Plus, ChevronRight, GripVertical, ArrowRightLeft, AlertTriangle, MessageSquare} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
 import {getConfig} from '@/lib/config';
+import {useUnreadCounts} from '@/hooks/useUnreadCounts';
 import type {Task, TaskStatus} from '@/lib/types';
 import {TaskModal} from './TaskModal';
 import {formatDistanceToNow} from 'date-fns';
@@ -32,7 +33,7 @@ const COLUMNS: {id: TaskStatus; labelKey: string; color: string}[] = [
 export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true}: MissionQueueProps) {
   const {tasks, updateTaskStatus, addEvent} = useMissionControl();
   const t = useTranslations('missionQueue');
-
+  const unreadCounts = useUnreadCounts();
   const [compactEmptyColumns, setCompactEmptyColumns] = useState(true);
   useEffect(() => {
     const cfg = getConfig();
@@ -224,6 +225,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                       isDragging={draggedTask?.id === task.id}
                       mobileMode={false}
                       portraitMode={false}
+                      unreadCount={unreadCounts[task.id] || 0}
                     />
                   ))}
                 </div>
@@ -269,6 +271,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                   isDragging={false}
                   mobileMode
                   portraitMode={isPortrait}
+                  unreadCount={unreadCounts[task.id] || 0}
                 />
               ))
             )}
@@ -355,6 +358,57 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
   );
 }
 
+function AssignedStatusBadge({task, portraitMode}: {task: Task; portraitMode: boolean}) {
+  const t = useTranslations('missionQueue');
+  const [retrying, setRetrying] = useState(false);
+  const updatedAt = new Date(task.updated_at).getTime();
+  const staleMs = Date.now() - updatedAt;
+  const isStale = staleMs > 2 * 60 * 1000; // 2 minutes
+
+  const handleRetryDispatch = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't open the task modal
+    setRetrying(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/dispatch`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error('Retry dispatch failed:', data.error);
+      }
+    } catch (err) {
+      console.error('Retry dispatch error:', err);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  if (isStale) {
+    const staleMinutes = Math.floor(staleMs / 60000);
+    return (
+      <div className={`${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-amber-500/10 rounded-md border border-amber-500/30`}>
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="w-2 h-2 bg-amber-400 rounded-full flex-shrink-0" />
+          <span className="text-xs text-amber-200">{t('assignedStuckMinutes', {minutes: staleMinutes})}</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleRetryDispatch}
+          disabled={retrying}
+          className="text-[11px] px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded border border-amber-500/30 disabled:opacity-50"
+        >
+          {retrying ? t('dispatchingShort') : t('retryDispatch')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-yellow-500/10 rounded-md border border-yellow-500/30`}>
+      <div className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" />
+      <span className="text-xs text-yellow-200">{t('assignedValidating')}</span>
+    </div>
+  );
+}
+
 interface TaskCardProps {
   task: Task;
   onDragStart: (e: React.DragEvent, task: Task) => void;
@@ -363,9 +417,10 @@ interface TaskCardProps {
   isDragging: boolean;
   mobileMode: boolean;
   portraitMode?: boolean;
+  unreadCount?: number;
 }
 
-function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true}: TaskCardProps) {
+function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true, unreadCount = 0}: TaskCardProps) {
   const t = useTranslations('missionQueue'); // 任务卡片文案国际化 / i18n for task card copy
   const locale = useLocale(); // 当前界面语言 / Current UI locale
   const dateLocale = locale === 'zh' ? zhCN : undefined; // 中文使用 zhCN，相对时间自动汉化 / Use zhCN for Chinese locale
@@ -405,7 +460,15 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
       )}
 
       <div className={portraitMode ? 'p-4' : 'p-3'}>
-        <h4 className={`font-medium leading-snug line-clamp-2 ${portraitMode ? 'text-sm mb-3' : 'text-xs mb-2'}`}>{task.title}</h4>
+        <div className="flex items-start justify-between gap-1.5">
+          <h4 className={`font-medium leading-snug line-clamp-2 ${portraitMode ? 'text-sm mb-3' : 'text-xs mb-2'}`}>{task.title}</h4>
+          {unreadCount > 0 && (
+            <span className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-mc-accent/15 text-mc-accent rounded text-[10px] font-medium" title={`${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}`}>
+              <MessageSquare className="w-2.5 h-2.5" />
+              {unreadCount}
+            </span>
+          )}
+        </div>
 
         {isPlanning && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-purple-500/10 rounded-md border border-purple-500/20`}>
@@ -439,12 +502,7 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
         )}
 
         {isAssigned && !dispatchError && (
-          <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-yellow-500/10 rounded-md border border-yellow-500/30`}>
-            <div className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" />
-            <span className="text-xs text-yellow-200">
-              {t('assignedValidating') /* 已分配并校验提示 / Assigned and validating hint */}
-            </span>
-          </div>
+          <AssignedStatusBadge task={task} portraitMode={portraitMode} />
         )}
 
         {task.status === 'inbox' && !task.assigned_agent_id && (

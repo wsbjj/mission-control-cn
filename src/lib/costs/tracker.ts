@@ -1,6 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { queryOne, queryAll, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
+import { recalculateAndBroadcast } from '@/lib/autopilot/health-score';
 import type { CostEvent } from '@/lib/types';
 
 export function recordCostEvent(input: {
@@ -48,7 +49,16 @@ export function recordCostEvent(input: {
     );
   }
 
-  return queryOne<CostEvent>('SELECT * FROM cost_events WHERE id = ?', [id])!;
+  const event = queryOne<CostEvent>('SELECT * FROM cost_events WHERE id = ?', [id])!;
+
+  // Recalculate health score when cost event is for a product (non-blocking)
+  if (input.product_id) {
+    try { recalculateAndBroadcast(input.product_id); } catch (err) {
+      console.error('[CostTracker] Health score recalc failed:', err);
+    }
+  }
+
+  return event;
 }
 
 export function getTaskCosts(taskId: string): CostEvent[] {

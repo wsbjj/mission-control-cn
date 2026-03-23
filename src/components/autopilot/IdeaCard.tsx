@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronDown, ChevronUp, Tag, AlertTriangle, Lightbulb, Code2, Target, DollarSign } from 'lucide-react';
+import { ChevronDown, ChevronUp, Tag, AlertTriangle, Lightbulb, Code2, Target, DollarSign, Copy } from 'lucide-react';
 import type { Idea } from '@/lib/types';
 
 interface IdeaCardProps {
@@ -41,6 +41,10 @@ export function IdeaCard({ idea, onAction, showActions = true, compact = false }
 
   const tags: string[] = idea.tags ? JSON.parse(idea.tags) : [];
   const risks: string[] = idea.risks ? JSON.parse(idea.risks) : [];
+
+  // Parse similarity flag if present
+  const similarIdeas: Array<{ idea_id: string; title: string; status: string; similarity: number }> =
+    idea.similarity_flag ? (() => { try { return JSON.parse(idea.similarity_flag); } catch { return []; } })() : [];
 
   return (
     <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-5 space-y-4 max-w-md w-full mx-auto">
@@ -90,6 +94,34 @@ export function IdeaCard({ idea, onAction, showActions = true, compact = false }
       {idea.source === 'resurfaced' && (
         <div className="text-xs bg-amber-500/20 text-amber-400 px-2 py-1 rounded inline-block">
           Resurfaced: {idea.resurfaced_reason || 'From maybe pool'}
+        </div>
+      )}
+
+      {/* Similarity badge — shows when idea is similar to existing ones */}
+      {similarIdeas.length > 0 && (
+        <div className="space-y-1">
+          {similarIdeas.map((sim, i) => {
+            const pct = Math.round(sim.similarity * 100);
+            const statusColors: Record<string, string> = {
+              approved: 'text-green-400',
+              rejected: 'text-red-400',
+              maybe: 'text-amber-400',
+              pending: 'text-mc-text-secondary',
+              building: 'text-blue-400',
+              built: 'text-cyan-400',
+              shipped: 'text-emerald-400',
+            };
+            const statusColor = statusColors[sim.status] || 'text-mc-text-secondary';
+            return (
+              <div key={i} className="flex items-start gap-1.5 text-xs bg-violet-500/15 text-violet-300 px-2 py-1.5 rounded border border-violet-500/20">
+                <Copy className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                <span>
+                  Similar to: <span className="font-medium text-violet-200">&ldquo;{sim.title}&rdquo;</span>
+                  {' '}(<span className={statusColor}>{sim.status}</span>, {pct}% match)
+                </span>
+              </div>
+            );
+          })}
         </div>
       )}
 

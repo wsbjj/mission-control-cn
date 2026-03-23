@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { useRouter, Link } from '@/i18n/navigation';
-import { ArrowLeft, ArrowRight, Check, Rocket, Search, Loader, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Rocket, Search, Loader, AlertTriangle, FileText, Sparkles } from 'lucide-react';
 
 type Step = 'basics' | 'program' | 'schedule' | 'done';
 
@@ -26,6 +26,10 @@ export default function NewProductPage() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [repoWarning, setRepoWarning] = useState<string | null>(null);
   const [productId, setProductId] = useState<string | null>(null);
+  const [importingReadme, setImportingReadme] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
+  const [descError, setDescError] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     description: '',
@@ -78,12 +82,66 @@ export default function NewProductPage() {
     try {
       const res = await fetch(`https://api.github.com/repos/${match[1]}/${match[2]}`, { method: 'GET' });
       if (!res.ok) {
-        setRepoWarning(t('repoVerifyFailed'));
+        setRepoWarning(t('repoVerifyDetailed'));
       } else {
         setRepoWarning(null);
       }
     } catch {
-      setRepoWarning(t('repoVerifyFailed'));
+      setRepoWarning(t('repoVerifyDetailed'));
+    }
+  };
+
+  const handleGenerateDescription = async () => {
+    if (!form.repo_url && !form.live_url) return;
+    setGeneratingDesc(true);
+    setDescError(null);
+    try {
+      const res = await fetch('/api/products/generate-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_url: form.repo_url, live_url: form.live_url, name: form.name }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: '' }));
+        setDescError(data.error || t('descGenFailedStatus', { status: res.status }));
+        return;
+      }
+      const { description } = await res.json();
+      if (description) {
+        setForm(f => ({ ...f, description }));
+      }
+    } catch {
+      setDescError(t('descGenFailedGeneric'));
+    } finally {
+      setGeneratingDesc(false);
+    }
+  };
+
+  const handleImportReadme = async () => {
+    if (!form.repo_url) return;
+    setImportingReadme(true);
+    setImportError(null);
+    try {
+      const res = await fetch('/api/products/import-readme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ repo_url: form.repo_url }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({ error: '' }));
+        setImportError(data.error || t('importReadmeFailedStatus', { status: res.status }));
+        return;
+      }
+      const { readme } = await res.json();
+      if (readme) {
+        setForm(f => ({ ...f, product_program: readme }));
+      } else {
+        setImportError(t('importReadmeNotFound'));
+      }
+    } catch {
+      setImportError(t('importReadmeFailedGeneric'));
+    } finally {
+      setImportingReadme(false);
     }
   };
 
@@ -176,6 +234,22 @@ export default function NewProductPage() {
                 rows={3}
                 placeholder={t('placeholderDescription')}
               />
+              {(form.repo_url || form.live_url) && (
+                <div className="mt-2">
+                  <button
+                    type="button"
+                    onClick={handleGenerateDescription}
+                    disabled={generatingDesc}
+                    className="inline-flex items-center gap-2 px-3 py-1.5 text-xs bg-mc-bg-tertiary border border-mc-border rounded-lg text-mc-text-secondary hover:text-mc-accent hover:border-mc-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {generatingDesc ? <Loader className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                    {generatingDesc ? t('descGenerating') : t('descGenerateButton')}
+                  </button>
+                  {descError && (
+                    <p className="text-[11px] text-red-400 mt-1">{descError}</p>
+                  )}
+                </div>
+              )}
             </div>
 
             {scanError && (
@@ -291,6 +365,22 @@ export default function NewProductPage() {
               <p className="text-sm text-mc-text-secondary mb-4">
                 {t('programIntro')}
               </p>
+              {form.repo_url && (
+                <div className="mb-4">
+                  <button
+                    type="button"
+                    onClick={handleImportReadme}
+                    disabled={importingReadme}
+                    className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-mc-bg-tertiary border border-mc-border rounded-lg text-mc-text-secondary hover:text-mc-text hover:border-mc-accent disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    {importingReadme ? <Loader className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4" />}
+                    {importingReadme ? t('importReadmeIng') : t('importReadmeButton')}
+                  </button>
+                  {importError && (
+                    <p className="text-[11px] text-red-400 mt-1.5">{importError}</p>
+                  )}
+                </div>
+              )}
               <textarea
                 value={form.product_program}
                 onChange={e => setForm(f => ({ ...f, product_program: e.target.value }))}

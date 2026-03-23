@@ -9,7 +9,17 @@ export async function POST(
 ) {
   try {
     const { id } = await params;
-    const cycleId = await runResearchCycle(id);
+
+    // If chainIdeation is true, ideation runs automatically after research completes
+    let chainIdeation = false;
+    try {
+      const body = await request.json();
+      chainIdeation = body.chainIdeation === true;
+    } catch {
+      // No body or invalid JSON — default to false
+    }
+
+    const cycleId = await runResearchCycle(id, undefined, chainIdeation);
     return NextResponse.json({ cycle_id: cycleId }, { status: 202 });
   } catch (error) {
     console.error('Failed to start research cycle:', error);

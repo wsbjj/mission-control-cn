@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Send, Check, Loader, MessageSquare } from 'lucide-react';
+import { MentionInput } from '@/components/chat/MentionInput';
 import type { TaskNote } from '@/lib/types';
 
 interface TaskChatTabProps {
@@ -15,7 +16,7 @@ export function TaskChatTab({ taskId }: TaskChatTabProps) {
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const loadNotes = async () => {
+  const loadNotes = useCallback(async () => {
     try {
       const res = await fetch(`/api/tasks/${taskId}/chat`);
       if (res.ok) {
@@ -25,12 +26,17 @@ export function TaskChatTab({ taskId }: TaskChatTabProps) {
     } catch {
       // Silently fail — will retry on next poll
     }
-  };
+  }, [taskId]);
 
   useEffect(() => {
     loadNotes();
     const interval = setInterval(loadNotes, 2000);
     return () => clearInterval(interval);
+  }, [loadNotes]);
+
+  // Mark as read when opening
+  useEffect(() => {
+    fetch(`/api/tasks/${taskId}/read`, { method: 'POST' }).catch(() => {});
   }, [taskId]);
 
   // Derive "waiting" from data: last message is from user, delivered, and less than 5 min old
@@ -71,17 +77,12 @@ export function TaskChatTab({ taskId }: TaskChatTabProps) {
 
       setMessage('');
       await loadNotes();
+      // Mark as read after sending
+      fetch(`/api/tasks/${taskId}/read`, { method: 'POST' }).catch(() => {});
     } catch {
       setError('Network error — please try again');
     } finally {
       setSending(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSend();
     }
   };
 
@@ -149,29 +150,23 @@ export function TaskChatTab({ taskId }: TaskChatTabProps) {
         )}
       </div>
 
-      {/* Input area */}
+      {/* Input area — now with @mention support */}
       <div className="border-t border-mc-border p-3 space-y-2">
         {error && (
           <div className="text-xs text-red-400 px-1">{error}</div>
         )}
 
-        <div className="flex gap-2">
-          <textarea
-            value={message}
-            onChange={e => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Message the agent..."
-            className="flex-1 bg-mc-bg border border-mc-border rounded-lg px-3 py-2 text-sm text-mc-text resize-none focus:outline-none focus:border-mc-accent"
-            rows={2}
-          />
-          <button
-            onClick={handleSend}
-            disabled={!message.trim() || sending}
-            className="self-end min-h-11 min-w-11 flex items-center justify-center rounded-lg bg-mc-accent text-white hover:bg-mc-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {sending ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          </button>
-        </div>
+        <MentionInput
+          taskId={taskId}
+          value={message}
+          onChange={setMessage}
+          onSend={handleSend}
+          sending={sending}
+          placeholder="Message the agent... (@ to mention, / for commands)"
+          onSlashCommand={(cmd) => {
+            window.dispatchEvent(new CustomEvent('commandpalette:open', { detail: { filter: cmd, taskId } }));
+          }}
+        />
       </div>
     </div>
   );

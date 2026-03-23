@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { recordSwipe } from '@/lib/autopilot/swipe';
+import { recordSwipe, getPendingCount } from '@/lib/autopilot/swipe';
 import { SwipeActionSchema } from '@/lib/validation';
 
 export const dynamic = 'force-dynamic';
@@ -21,5 +21,19 @@ export async function POST(
     console.error('Failed to record swipe:', error);
     const message = error instanceof Error ? error.message : 'Failed to record swipe';
     return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const count = getPendingCount(id);
+    return NextResponse.json({ pending_count: count });
+  } catch (error) {
+    console.error('Failed to get pending count:', error);
+    return NextResponse.json({ error: 'Failed to get pending count' }, { status: 500 });
   }
 }

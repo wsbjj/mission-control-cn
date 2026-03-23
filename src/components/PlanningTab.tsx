@@ -63,6 +63,9 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
   const [isWaitingForResponse, setIsWaitingForResponse] = useState(false);
   const [retryingDispatch, setRetryingDispatch] = useState(false);
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [stalePlanning, setStalePlanning] = useState(false);
+  const [forceCompleting, setForceCompleting] = useState(false);
+  const [noNewMessageCount, setNoNewMessageCount] = useState(0);
 
   // Refs to track polling state without triggering re-renders
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -119,9 +122,26 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
       if (res.ok) {
         const data = await res.json();
 
+        // Track stale planning state from server
+        if (data.stalePlanning) {
+          setStalePlanning(true);
+        }
+
+        // Track consecutive "no updates" polls — if we get 15+ (30 seconds)
+        // with no movement after submitting an answer, something is wrong
+        if (!data.hasUpdates && isWaitingForResponse) {
+          setNoNewMessageCount(prev => {
+            const next = prev + 1;
+            if (next >= 15) setStalePlanning(true);
+            return next;
+          });
+        }
+
         if (data.hasUpdates) {
           // Clear any stale waiting warnings once updates are flowing
           setError(null);
+          setStalePlanning(false);
+          setNoNewMessageCount(0);
 
           const newQuestion = data.currentQuestion?.question;
           const questionChanged = newQuestion && currentQuestionRef.current !== newQuestion;
@@ -372,6 +392,34 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
       setError('Failed to retry dispatch');
     } finally {
       setRetryingDispatch(false);
+    }
+  };
+
+  // Force complete planning when stuck
+  const forceCompletePlanning = async () => {
+    setForceCompleting(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/tasks/${taskId}/planning/force-complete`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      if (res.ok) {
+        setStalePlanning(false);
+        setNoNewMessageCount(0);
+        // Reload full state
+        await loadState();
+        if (onSpecLocked) onSpecLocked();
+      } else {
+        setError(data.error || 'Failed to force-complete planning');
+      }
+    } catch (err) {
+      setError('Failed to force-complete planning');
+    } finally {
+      setForceCompleting(false);
     }
   };
 
@@ -716,10 +764,48 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
         ) : (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
-              <Loader2 className="w-8 h-8 animate-spin text-mc-accent mx-auto mb-2" />
-              <p className="text-mc-text-secondary">
-                {isWaitingForResponse ? 'Waiting for response...' : 'Waiting for next question...'}
-              </p>
+              {stalePlanning ? (
+                <>
+                  <AlertCircle className="w-8 h-8 text-amber-400 mx-auto mb-3" />
+                  <p className="text-amber-300 font-medium mb-2">Planning appears stuck</p>
+                  <p className="text-mc-text-secondary text-sm mb-4 max-w-sm">
+                    The orchestrator hasn&apos;t responded in a while. This can happen when the completion message was processed but the dispatch didn&apos;t fire.
+                  </p>
+                  <div className="flex items-center justify-center gap-3">
+                    <button
+                      onClick={forceCompletePlanning}
+                      disabled={forceCompleting}
+                      className="px-4 py-2 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-sm rounded-lg border border-amber-500/30 disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {forceCompleting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Processing...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle className="w-4 h-4" />
+                          Force Complete &amp; Dispatch
+                        </>
+                      )}
+                    </button>
+                    <button
+                      onClick={cancelPlanning}
+                      disabled={canceling}
+                      className="px-4 py-2 text-mc-text-secondary hover:text-mc-accent-red text-sm rounded-lg border border-mc-border hover:border-mc-accent-red/30"
+                    >
+                      Cancel Planning
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Loader2 className="w-8 h-8 animate-spin text-mc-accent mx-auto mb-2" />
+                  <p className="text-mc-text-secondary">
+                    {isWaitingForResponse ? 'Waiting for response...' : 'Waiting for next question...'}
+                  </p>
+                </>
+              )}
             </div>
           </div>
         )}

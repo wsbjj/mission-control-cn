@@ -79,12 +79,13 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
       const resolvedStatus = resolveStatus();
 
       // Send only known PATCH fields — avoid `null`/extras that Zod rejects (e.g. description: null).
+      const trimmedAgentId = (form.assigned_agent_id ?? '').trim();
       const payload = {
         title: form.title,
         description: form.description ?? '',
         priority: form.priority,
         status: resolvedStatus,
-        assigned_agent_id: form.assigned_agent_id || null,
+        assigned_agent_id: trimmedAgentId === '' ? null : trimmedAgentId,
         due_date: form.due_date || null,
         workspace_id: workspaceId || task?.workspace_id || 'default',
       };

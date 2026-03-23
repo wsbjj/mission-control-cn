@@ -78,8 +78,11 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
       const method = task ? 'PATCH' : 'POST';
       const resolvedStatus = resolveStatus();
 
+      // Send only known PATCH fields — avoid `null`/extras that Zod rejects (e.g. description: null).
       const payload = {
-        ...form,
+        title: form.title,
+        description: form.description ?? '',
+        priority: form.priority,
         status: resolvedStatus,
         assigned_agent_id: form.assigned_agent_id || null,
         due_date: form.due_date || null,
@@ -94,7 +97,13 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        setSaveError(errData.error || `Save failed (${res.status})`);
+        const firstDetail =
+          Array.isArray(errData.details) && errData.details[0]
+            ? `${errData.details[0].path?.join?.('.') || 'field'}: ${errData.details[0].message || ''}`
+            : '';
+        setSaveError(
+          [errData.error || `Save failed (${res.status})`, firstDetail].filter(Boolean).join(' — ')
+        );
         return;
       }
 

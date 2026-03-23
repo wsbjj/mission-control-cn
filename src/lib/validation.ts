@@ -39,20 +39,28 @@ export const CreateTaskSchema = z.object({
   due_date: z.string().optional().nullable(),
 });
 
+// PATCH bodies often include explicit `null` from clients (clear field). Zod's `.optional()`
+// only allows `undefined`, not `null` — use unions / preprocess where needed.
 export const UpdateTaskSchema = z.object({
-  title: z.string().min(1).max(500).optional(),
-  description: z.string().max(10000).optional(),
+  title: z.preprocess(
+    (val) => (val === null || val === undefined || val === '' ? undefined : val),
+    z.string().min(1).max(500).optional()
+  ),
+  description: z.union([z.string().max(10000), z.null()]).optional(),
   status: TaskStatus.optional(),
   priority: TaskPriority.optional(),
   assigned_agent_id: z.string().uuid().optional().nullable(),
   workflow_template_id: z.string().optional().nullable(),
   due_date: z.string().optional().nullable(),
   updated_by_agent_id: z.string().uuid().optional(),
-  status_reason: z.string().max(2000).optional(),
+  status_reason: z.string().max(2000).optional().nullable(),
   board_override: z.boolean().optional(),
-  override_reason: z.string().max(2000).optional(),
-  pr_url: z.string().url().optional().nullable(),
-  pr_status: z.enum(['pending', 'open', 'merged', 'closed']).optional(),
+  override_reason: z.string().max(2000).optional().nullable(),
+  pr_url: z
+    .union([z.string().url(), z.literal(''), z.null()])
+    .optional()
+    .transform((v) => (v === '' ? null : v)),
+  pr_status: z.enum(['pending', 'open', 'merged', 'closed']).optional().nullable(),
 });
 
 // Activity validation schema

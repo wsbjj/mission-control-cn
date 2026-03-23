@@ -8,6 +8,7 @@
 import { useEffect, useRef } from 'react';
 import { useMissionControl } from '@/lib/store';
 import { debug } from '@/lib/debug';
+import { showToast } from '@/components/Toast';
 import type { SSEEvent, Task } from '@/lib/types';
 
 export function useSSE() {
@@ -110,6 +111,78 @@ export function useSSE() {
 
             case 'agent_completed':
               debug.sse('Agent completed', sseEvent.payload);
+              break;
+
+            case 'convoy_created':
+            case 'convoy_progress':
+            case 'convoy_completed':
+              debug.sse(`Convoy event: ${sseEvent.type}`, sseEvent.payload);
+              // Convoy events trigger task re-fetch via task_updated events
+              break;
+
+            case 'agent_health_changed':
+              debug.sse('Agent health changed', sseEvent.payload);
+              break;
+
+            case 'checkpoint_saved':
+              debug.sse('Checkpoint saved', sseEvent.payload);
+              break;
+
+            case 'mail_received':
+              debug.sse('Mail received', sseEvent.payload);
+              break;
+
+            case 'research_started':
+            case 'research_completed':
+            case 'research_phase':
+            case 'ideation_phase':
+            case 'autopilot_activity':
+            case 'ideas_generated':
+            case 'idea_swiped':
+            case 'idea_building':
+            case 'idea_shipped':
+            case 'maybe_resurfaced':
+            case 'preference_updated':
+              debug.sse(`Autopilot event: ${sseEvent.type}`, sseEvent.payload);
+              // Surface autopilot errors as toasts
+              if (sseEvent.type === 'autopilot_activity') {
+                const p = sseEvent.payload as { eventType?: string; message?: string; detail?: string };
+                if (p.eventType === 'error') {
+                  showToast({
+                    type: 'error',
+                    title: p.message || 'Autopilot error',
+                    message: p.detail,
+                    duration: 0,
+                  });
+                }
+              }
+              break;
+
+            case 'health_score_updated':
+              debug.sse('Health score updated', sseEvent.payload);
+              // Dispatch custom event for health score listeners
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('health-score-updated', { detail: sseEvent.payload }));
+              }
+              break;
+
+            case 'cost_cap_warning':
+              debug.sse('Cost cap warning', sseEvent.payload);
+              showToast({
+                type: 'warning',
+                title: 'Cost cap warning',
+                message: (sseEvent.payload as { message?: string }).message || 'Approaching cost limit',
+              });
+              break;
+
+            case 'cost_cap_exceeded':
+              debug.sse('Cost cap exceeded', sseEvent.payload);
+              showToast({
+                type: 'error',
+                title: 'Cost cap exceeded',
+                message: (sseEvent.payload as { message?: string }).message || 'Operations paused — cost limit reached',
+                duration: 0,
+              });
               break;
 
             default:

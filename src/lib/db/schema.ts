@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS agents (
   source TEXT DEFAULT 'local',
   gateway_agent_id TEXT,
   session_key_prefix TEXT,
+  total_cost_usd REAL DEFAULT 0,
+  total_tokens_used INTEGER DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -49,7 +51,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
   description TEXT,
-  status TEXT DEFAULT 'inbox' CHECK (status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'testing', 'review', 'verification', 'done')),
+  status TEXT DEFAULT 'inbox' CHECK (status IN ('pending_dispatch', 'planning', 'inbox', 'assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification', 'done')),
   priority TEXT DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
   assigned_agent_id TEXT REFERENCES agents(id),
   created_by_agent_id TEXT REFERENCES agents(id),
@@ -65,8 +67,51 @@ CREATE TABLE IF NOT EXISTS tasks (
   planning_dispatch_error TEXT,
   status_reason TEXT,
   images TEXT,
+  convoy_id TEXT,
+  is_subtask INTEGER DEFAULT 0,
+  product_id TEXT REFERENCES products(id),
+  idea_id TEXT REFERENCES ideas(id),
+  estimated_cost_usd REAL,
+  actual_cost_usd REAL DEFAULT 0,
+  repo_url TEXT,
+  repo_branch TEXT,
+  pr_url TEXT,
+  pr_status TEXT CHECK (pr_status IN ('pending', 'open', 'merged', 'closed')),
+  workspace_path TEXT,
+  workspace_strategy TEXT,
+  workspace_port INTEGER,
+  workspace_base_commit TEXT,
+  merge_status TEXT,
+  merge_pr_url TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Workspace port allocations for parallel build isolation
+CREATE TABLE IF NOT EXISTS workspace_ports (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  port INTEGER NOT NULL UNIQUE,
+  product_id TEXT,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TEXT NOT NULL,
+  released_at TEXT
+);
+
+-- Workspace merge history
+CREATE TABLE IF NOT EXISTS workspace_merges (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  workspace_path TEXT NOT NULL,
+  strategy TEXT NOT NULL,
+  base_commit TEXT,
+  merge_commit TEXT,
+  status TEXT NOT NULL DEFAULT 'pending',
+  conflict_files TEXT,
+  merge_log TEXT,
+  merged_by TEXT,
+  created_at TEXT NOT NULL,
+  merged_at TEXT
 );
 
 -- Planning questions table
@@ -217,6 +262,450 @@ CREATE TABLE IF NOT EXISTS task_deliverables (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+-- Convoys: parallel task groups
+CREATE TABLE IF NOT EXISTS convoys (
+  id TEXT PRIMARY KEY,
+  parent_task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'completing', 'done', 'failed')),
+  decomposition_strategy TEXT DEFAULT 'manual' CHECK (decomposition_strategy IN ('manual', 'ai', 'planning')),
+  decomposition_spec TEXT,
+  total_subtasks INTEGER DEFAULT 0,
+  completed_subtasks INTEGER DEFAULT 0,
+  failed_subtasks INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Convoy subtasks: individual work items within a convoy
+CREATE TABLE IF NOT EXISTS convoy_subtasks (
+  id TEXT PRIMARY KEY,
+  convoy_id TEXT NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL UNIQUE REFERENCES tasks(id) ON DELETE CASCADE,
+  sort_order INTEGER DEFAULT 0,
+  depends_on TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Agent health snapshots
+CREATE TABLE IF NOT EXISTS agent_health (
+  id TEXT PRIMARY KEY,
+  agent_id TEXT NOT NULL REFERENCES agents(id) ON DELETE CASCADE,
+  task_id TEXT REFERENCES tasks(id),
+  health_state TEXT DEFAULT 'idle' CHECK (health_state IN ('idle', 'working', 'stalled', 'stuck', 'zombie', 'offline')),
+  last_activity_at TEXT,
+  last_checkpoint_at TEXT,
+  progress_score REAL DEFAULT 0,
+  consecutive_stall_checks INTEGER DEFAULT 0,
+  metadata TEXT,
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Work checkpoints: periodic snapshots of agent work state
+CREATE TABLE IF NOT EXISTS work_checkpoints (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  agent_id TEXT NOT NULL REFERENCES agents(id),
+  checkpoint_type TEXT DEFAULT 'auto' CHECK (checkpoint_type IN ('auto', 'manual', 'crash_recovery')),
+  state_summary TEXT NOT NULL,
+  files_snapshot TEXT,
+  context_data TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Agent mailbox: inter-agent communication within a convoy
+CREATE TABLE IF NOT EXISTS agent_mailbox (
+  id TEXT PRIMARY KEY,
+  convoy_id TEXT NOT NULL REFERENCES convoys(id) ON DELETE CASCADE,
+  from_agent_id TEXT NOT NULL REFERENCES agents(id),
+  to_agent_id TEXT NOT NULL REFERENCES agents(id),
+  subject TEXT,
+  body TEXT NOT NULL,
+  read_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Products table (Product Autopilot)
+CREATE TABLE IF NOT EXISTS products (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  name TEXT NOT NULL,
+  description TEXT,
+  repo_url TEXT,
+  live_url TEXT,
+  product_program TEXT,
+  icon TEXT DEFAULT '🚀',
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'archived')),
+  settings TEXT,
+  build_mode TEXT DEFAULT 'plan_first' CHECK (build_mode IN ('auto_build', 'plan_first')),
+  default_branch TEXT DEFAULT 'main',
+  cost_cap_per_task REAL,
+  cost_cap_monthly REAL,
+  health_weight_config TEXT,
+  batch_review_threshold INTEGER DEFAULT 10,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Research cycles: AI research runs per product
+CREATE TABLE IF NOT EXISTS research_cycles (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  status TEXT DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'cancelled', 'interrupted')),
+  report TEXT,
+  ideas_generated INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0,
+  tokens_used INTEGER DEFAULT 0,
+  agent_id TEXT REFERENCES agents(id),
+  current_phase TEXT DEFAULT 'init',
+  phase_data TEXT,
+  session_key TEXT,
+  last_heartbeat TEXT,
+  retry_count INTEGER DEFAULT 0,
+  started_at TEXT DEFAULT (datetime('now')),
+  completed_at TEXT,
+  error_message TEXT
+);
+
+-- Ideation cycles: AI ideation runs per product
+CREATE TABLE IF NOT EXISTS ideation_cycles (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id),
+  research_cycle_id TEXT REFERENCES research_cycles(id),
+  status TEXT NOT NULL DEFAULT 'running' CHECK (status IN ('running', 'completed', 'failed', 'interrupted')),
+  current_phase TEXT DEFAULT 'init',
+  phase_data TEXT,
+  session_key TEXT,
+  last_heartbeat TEXT,
+  retry_count INTEGER DEFAULT 0,
+  ideas_generated INTEGER DEFAULT 0,
+  error_message TEXT,
+  started_at TEXT NOT NULL,
+  completed_at TEXT
+);
+
+-- Autopilot activity log: real-time activity tracking
+CREATE TABLE IF NOT EXISTS autopilot_activity_log (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id),
+  cycle_id TEXT NOT NULL,
+  cycle_type TEXT NOT NULL CHECK(cycle_type IN ('research', 'ideation')),
+  event_type TEXT NOT NULL,
+  message TEXT NOT NULL,
+  detail TEXT,
+  cost_usd REAL,
+  tokens_used INTEGER,
+  created_at TEXT NOT NULL
+);
+
+-- Ideas: product improvement ideas from research or manual entry
+CREATE TABLE IF NOT EXISTS ideas (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  cycle_id TEXT REFERENCES research_cycles(id),
+  title TEXT NOT NULL,
+  description TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN (
+    'feature', 'improvement', 'ux', 'performance', 'integration',
+    'infrastructure', 'content', 'growth', 'monetization', 'operations', 'security'
+  )),
+  research_backing TEXT,
+  impact_score REAL,
+  feasibility_score REAL,
+  complexity TEXT CHECK (complexity IN ('S', 'M', 'L', 'XL')),
+  estimated_effort_hours REAL,
+  competitive_analysis TEXT,
+  target_user_segment TEXT,
+  revenue_potential TEXT,
+  technical_approach TEXT,
+  risks TEXT,
+  tags TEXT,
+  source TEXT DEFAULT 'research' CHECK (source IN ('research', 'manual', 'resurfaced', 'feedback')),
+  source_research TEXT,
+  status TEXT DEFAULT 'pending' CHECK (status IN (
+    'pending', 'approved', 'rejected', 'maybe', 'building', 'built', 'shipped'
+  )),
+  swiped_at TEXT,
+  task_id TEXT REFERENCES tasks(id),
+  user_notes TEXT,
+  resurfaced_from TEXT REFERENCES ideas(id),
+  resurfaced_reason TEXT,
+  similarity_flag TEXT,
+  auto_suppressed INTEGER DEFAULT 0,
+  suppress_reason TEXT,
+  variant_id TEXT REFERENCES product_program_variants(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Idea embeddings: text embeddings for similarity detection
+CREATE TABLE IF NOT EXISTS idea_embeddings (
+  id TEXT PRIMARY KEY,
+  idea_id TEXT NOT NULL UNIQUE REFERENCES ideas(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  embedding TEXT NOT NULL,
+  text_hash TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Idea suppressions: audit log of auto-suppressed duplicate ideas
+CREATE TABLE IF NOT EXISTS idea_suppressions (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  suppressed_title TEXT NOT NULL,
+  suppressed_description TEXT NOT NULL,
+  similar_to_idea_id TEXT NOT NULL REFERENCES ideas(id),
+  similarity_score REAL NOT NULL,
+  reason TEXT NOT NULL,
+  ideation_cycle_id TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Swipe history: user decisions on ideas
+CREATE TABLE IF NOT EXISTS swipe_history (
+  id TEXT PRIMARY KEY,
+  idea_id TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  action TEXT NOT NULL CHECK (action IN ('approve', 'reject', 'maybe', 'fire')),
+  category TEXT NOT NULL,
+  tags TEXT,
+  impact_score REAL,
+  feasibility_score REAL,
+  complexity TEXT,
+  user_notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Preference models: learned user preferences per product
+CREATE TABLE IF NOT EXISTS preference_models (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  model_type TEXT DEFAULT 'simple' CHECK (model_type IN ('simple', 'advanced')),
+  category_weights TEXT,
+  tag_weights TEXT,
+  complexity_weights TEXT,
+  patterns TEXT,
+  learned_preferences_md TEXT,
+  total_swipes INTEGER DEFAULT 0,
+  approval_rate REAL DEFAULT 0,
+  last_updated TEXT DEFAULT (datetime('now')),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Maybe pool: ideas deferred for re-evaluation
+CREATE TABLE IF NOT EXISTS maybe_pool (
+  id TEXT PRIMARY KEY,
+  idea_id TEXT NOT NULL REFERENCES ideas(id) ON DELETE CASCADE,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  last_evaluated_at TEXT,
+  next_evaluate_at TEXT,
+  evaluation_count INTEGER DEFAULT 0,
+  evaluation_notes TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Product feedback: external feedback linked to products
+CREATE TABLE IF NOT EXISTS product_feedback (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  source TEXT NOT NULL,
+  content TEXT NOT NULL,
+  customer_id TEXT,
+  category TEXT,
+  sentiment TEXT CHECK (sentiment IN ('positive', 'negative', 'neutral', 'mixed')),
+  processed INTEGER DEFAULT 0,
+  idea_id TEXT REFERENCES ideas(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Cost events: granular cost tracking per operation
+CREATE TABLE IF NOT EXISTS cost_events (
+  id TEXT PRIMARY KEY,
+  product_id TEXT REFERENCES products(id),
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  task_id TEXT REFERENCES tasks(id),
+  cycle_id TEXT REFERENCES research_cycles(id),
+  agent_id TEXT REFERENCES agents(id),
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'agent_dispatch', 'research_cycle', 'ideation_cycle', 'build_task',
+    'content_generation', 'seo_analysis', 'web_search', 'external_api'
+  )),
+  provider TEXT,
+  model TEXT,
+  tokens_input INTEGER DEFAULT 0,
+  tokens_output INTEGER DEFAULT 0,
+  cost_usd REAL DEFAULT 0,
+  metadata TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Cost caps: spending limits per workspace/product
+CREATE TABLE IF NOT EXISTS cost_caps (
+  id TEXT PRIMARY KEY,
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id),
+  product_id TEXT REFERENCES products(id),
+  cap_type TEXT NOT NULL CHECK (cap_type IN ('per_cycle', 'per_task', 'daily', 'monthly', 'per_product_monthly')),
+  limit_usd REAL NOT NULL,
+  current_spend_usd REAL DEFAULT 0,
+  period_start TEXT,
+  period_end TEXT,
+  status TEXT DEFAULT 'active' CHECK (status IN ('active', 'paused', 'exceeded')),
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Product schedules: recurring automation schedules
+CREATE TABLE IF NOT EXISTS product_schedules (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  schedule_type TEXT NOT NULL CHECK (schedule_type IN (
+    'research', 'ideation', 'maybe_reevaluation', 'seo_audit',
+    'content_refresh', 'analytics_report', 'social_batch', 'growth_experiment'
+  )),
+  cron_expression TEXT NOT NULL,
+  timezone TEXT DEFAULT 'America/Denver',
+  enabled INTEGER DEFAULT 1,
+  last_run_at TEXT,
+  next_run_at TEXT,
+  config TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Operations log: audit trail for automated operations
+CREATE TABLE IF NOT EXISTS operations_log (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  operation_type TEXT NOT NULL CHECK (operation_type IN (
+    'seo_audit', 'content_publish', 'content_refresh', 'social_post',
+    'keyword_research', 'analytics_report', 'growth_experiment',
+    'feedback_processing', 'preference_update'
+  )),
+  status TEXT DEFAULT 'completed' CHECK (status IN ('running', 'completed', 'failed')),
+  summary TEXT,
+  details TEXT,
+  cost_usd REAL DEFAULT 0,
+  agent_id TEXT REFERENCES agents(id),
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Content inventory: managed content pieces per product
+CREATE TABLE IF NOT EXISTS content_inventory (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  content_type TEXT NOT NULL CHECK (content_type IN (
+    'blog_post', 'documentation', 'tutorial', 'landing_page', 'changelog',
+    'newsletter', 'faq', 'social_post', 'guide', 'case_study'
+  )),
+  title TEXT NOT NULL,
+  url TEXT,
+  status TEXT DEFAULT 'draft' CHECK (status IN ('draft', 'review', 'published', 'archived')),
+  target_keywords TEXT,
+  performance TEXT,
+  last_refreshed_at TEXT,
+  idea_id TEXT REFERENCES ideas(id),
+  task_id TEXT REFERENCES tasks(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Social queue: scheduled social media posts
+CREATE TABLE IF NOT EXISTS social_queue (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  platform TEXT NOT NULL CHECK (platform IN ('twitter', 'linkedin', 'facebook', 'instagram', 'reddit', 'other')),
+  content TEXT NOT NULL,
+  media_url TEXT,
+  suggested_post_time TEXT,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'posted', 'failed')),
+  posted_at TEXT,
+  performance TEXT,
+  idea_id TEXT REFERENCES ideas(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- SEO keywords: tracked keywords per product
+CREATE TABLE IF NOT EXISTS seo_keywords (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  keyword TEXT NOT NULL,
+  current_position REAL,
+  previous_position REAL,
+  impressions INTEGER DEFAULT 0,
+  clicks INTEGER DEFAULT 0,
+  ctr REAL DEFAULT 0,
+  target_position REAL,
+  status TEXT DEFAULT 'tracking' CHECK (status IN ('tracking', 'optimizing', 'achieved', 'abandoned')),
+  content_ids TEXT,
+  last_checked_at TEXT,
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Task notes: operator ↔ agent chat messages
+CREATE TABLE IF NOT EXISTS task_notes (
+  id TEXT PRIMARY KEY,
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  content TEXT NOT NULL,
+  mode TEXT NOT NULL CHECK (mode IN ('note', 'direct')),
+  role TEXT DEFAULT 'user',
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'delivered', 'read')),
+  delivered_at TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Product health scores: cached composite scores + daily snapshots
+CREATE TABLE IF NOT EXISTS product_health_scores (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  overall_score REAL NOT NULL DEFAULT 0,
+  research_freshness_score REAL DEFAULT 0,
+  pipeline_depth_score REAL DEFAULT 0,
+  swipe_velocity_score REAL DEFAULT 0,
+  build_success_score REAL DEFAULT 0,
+  cost_efficiency_score REAL DEFAULT 0,
+  component_data TEXT,
+  snapshot_date TEXT,
+  calculated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- User task read tracking (for unread message badges)
+CREATE TABLE IF NOT EXISTS user_task_reads (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL DEFAULT 'operator',
+  task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  last_read_at TEXT NOT NULL,
+  created_at TEXT DEFAULT (datetime('now')),
+  UNIQUE(user_id, task_id)
+);
+
+-- Product Program variants for A/B testing
+CREATE TABLE IF NOT EXISTS product_program_variants (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  content TEXT NOT NULL,
+  is_control INTEGER DEFAULT 0,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Product A/B tests
+CREATE TABLE IF NOT EXISTS product_ab_tests (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  variant_a_id TEXT NOT NULL REFERENCES product_program_variants(id),
+  variant_b_id TEXT NOT NULL REFERENCES product_program_variants(id),
+  status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'concluded', 'cancelled')),
+  split_mode TEXT NOT NULL DEFAULT 'concurrent' CHECK (split_mode IN ('concurrent', 'alternating')),
+  min_swipes INTEGER NOT NULL DEFAULT 50,
+  last_variant_used TEXT,
+  winner_variant_id TEXT REFERENCES product_program_variants(id),
+  created_at TEXT DEFAULT (datetime('now')),
+  concluded_at TEXT
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id);
@@ -233,4 +722,47 @@ CREATE INDEX IF NOT EXISTS idx_workflow_templates_workspace ON workflow_template
 CREATE INDEX IF NOT EXISTS idx_task_roles_task ON task_roles(task_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_entries_workspace ON knowledge_entries(workspace_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_knowledge_entries_task ON knowledge_entries(task_id);
+CREATE INDEX IF NOT EXISTS idx_convoys_parent ON convoys(parent_task_id);
+CREATE INDEX IF NOT EXISTS idx_convoys_status ON convoys(status);
+CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_convoy ON convoy_subtasks(convoy_id);
+CREATE INDEX IF NOT EXISTS idx_convoy_subtasks_task ON convoy_subtasks(task_id);
+CREATE INDEX IF NOT EXISTS idx_agent_health_agent ON agent_health(agent_id);
+CREATE INDEX IF NOT EXISTS idx_agent_health_state ON agent_health(health_state);
+CREATE INDEX IF NOT EXISTS idx_work_checkpoints_task ON work_checkpoints(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_agent_mailbox_to ON agent_mailbox(to_agent_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_agent_mailbox_convoy ON agent_mailbox(convoy_id);
+CREATE INDEX IF NOT EXISTS idx_products_workspace ON products(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_research_cycles_product ON research_cycles(product_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ideas_product ON ideas(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ideas_status ON ideas(status);
+CREATE INDEX IF NOT EXISTS idx_ideas_product_pending ON ideas(product_id, status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_swipe_history_product ON swipe_history(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_swipe_history_category ON swipe_history(product_id, category);
+CREATE INDEX IF NOT EXISTS idx_maybe_pool_next ON maybe_pool(product_id, next_evaluate_at);
+CREATE INDEX IF NOT EXISTS idx_cost_events_product ON cost_events(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cost_events_workspace ON cost_events(workspace_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_cost_events_task ON cost_events(task_id);
+CREATE INDEX IF NOT EXISTS idx_cost_caps_workspace ON cost_caps(workspace_id);
+CREATE INDEX IF NOT EXISTS idx_product_schedules_product ON product_schedules(product_id);
+CREATE INDEX IF NOT EXISTS idx_operations_log_product ON operations_log(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_content_inventory_product ON content_inventory(product_id);
+CREATE INDEX IF NOT EXISTS idx_social_queue_product ON social_queue(product_id, status);
+CREATE INDEX IF NOT EXISTS idx_seo_keywords_product ON seo_keywords(product_id);
+CREATE INDEX IF NOT EXISTS idx_product_feedback_product ON product_feedback(product_id, processed);
+CREATE INDEX IF NOT EXISTS idx_task_notes_task ON task_notes(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_notes_pending ON task_notes(task_id, status) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_ppv_product ON product_program_variants(product_id);
+CREATE INDEX IF NOT EXISTS idx_ab_tests_product ON product_ab_tests(product_id, status);
+-- idx_ideas_variant: created in migration 027 after variant_id column exists on legacy DBs
+CREATE INDEX IF NOT EXISTS idx_ideation_cycles_product ON ideation_cycles(product_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_autopilot_activity_product ON autopilot_activity_log(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_autopilot_activity_cycle ON autopilot_activity_log(cycle_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_workspace_ports_active ON workspace_ports(status, port);
+CREATE INDEX IF NOT EXISTS idx_workspace_merges_task ON workspace_merges(task_id);
+CREATE INDEX IF NOT EXISTS idx_health_scores_product ON product_health_scores(product_id, calculated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_health_scores_snapshot ON product_health_scores(product_id, snapshot_date);
+CREATE INDEX IF NOT EXISTS idx_idea_embeddings_product ON idea_embeddings(product_id);
+CREATE INDEX IF NOT EXISTS idx_idea_embeddings_idea ON idea_embeddings(idea_id);
+CREATE INDEX IF NOT EXISTS idx_idea_suppressions_product ON idea_suppressions(product_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_task_reads_user_task ON user_task_reads(user_id, task_id);
 `;

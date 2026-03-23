@@ -1,11 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
-import { queryOne, run } from '@/lib/db';
+import { queryOne, queryAll, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
 import { handleStageTransition, handleStageFailure, getTaskWorkflow, drainQueue, populateTaskRolesFromAgents } from '@/lib/workflow-engine';
 import { hasStageEvidence, canUseBoardOverride, auditBoardOverride, taskCanBeDone, recordLearnerOnTransition } from '@/lib/task-governance';
+import { updateConvoyProgress, checkConvoyCompletion } from '@/lib/convoy';
 import { syncGatewayAgentsToCatalog } from '@/lib/agent-catalog-sync';
+import { triggerWorkspaceMerge } from '@/lib/workspace-isolation';
 import { UpdateTaskSchema } from '@/lib/validation';
 import type { Task, UpdateTaskRequest, Agent, TaskDeliverable } from '@/lib/types';
 
@@ -114,6 +116,14 @@ export async function PATCH(
     if (validatedData.status_reason !== undefined) {
       updates.push('status_reason = ?');
       values.push(validatedData.status_reason);
+    }
+    if ((validatedData as Record<string, unknown>).pr_url !== undefined) {
+      updates.push('pr_url = ?');
+      values.push((validatedData as Record<string, unknown>).pr_url);
+    }
+    if ((validatedData as Record<string, unknown>).pr_status !== undefined) {
+      updates.push('pr_status = ?');
+      values.push((validatedData as Record<string, unknown>).pr_status);
     }
 
     // Track if we need to dispatch task
@@ -304,6 +314,7 @@ export async function PATCH(
           const dispatchRes = await fetch(`${missionControlUrl}/api/tasks/${id}/dispatch`, {
             method: 'POST',
             headers,
+            signal: AbortSignal.timeout(30_000),
           });
 
           if (!dispatchRes.ok) {
@@ -366,6 +377,7 @@ export async function PATCH(
         const dispatchRes = await fetch(`${missionControlUrl}/api/tasks/${id}/dispatch`, {
           method: 'POST',
           headers,
+          signal: AbortSignal.timeout(30_000),
         });
         if (!dispatchRes.ok) {
           const errorText = await dispatchRes.text();
@@ -421,11 +433,30 @@ export async function PATCH(
       );
     }
 
+    // If this is a sub-task, update convoy progress and check completion
+    if (nextStatus && nextStatus !== existing.status && existing.convoy_id) {
+      try {
+        updateConvoyProgress(existing.convoy_id);
+        if (nextStatus === 'done') {
+          checkConvoyCompletion(existing.convoy_id);
+        }
+      } catch (err) {
+        console.error('[Convoy] progress update failed:', err);
+      }
+    }
+
     // Drain the review queue when a task reaches 'done' (frees the verification slot)
     if (nextStatus === 'done') {
       drainQueue(id, existing.workspace_id).catch(err =>
         console.error('[Workflow] drainQueue after done failed:', err)
       );
+
+      // Trigger workspace merge if task has an isolated workspace
+      if (existing.workspace_path) {
+        triggerWorkspaceMerge(id).catch(err =>
+          console.error('[Workspace] merge after done failed:', err)
+        );
+      }
     }
 
     return NextResponse.json(task);
@@ -465,12 +496,29 @@ export async function DELETE(
       }
     }
 
+    // Delete convoy and its sub-tasks if this is a convoy parent
+    const convoy = queryOne<{ id: string }>('SELECT id FROM convoys WHERE parent_task_id = ?', [id]);
+    if (convoy) {
+      // Delete sub-tasks first (CASCADE handles convoy_subtasks)
+      const subtaskIds = queryAll<{ task_id: string }>('SELECT task_id FROM convoy_subtasks WHERE convoy_id = ?', [convoy.id]);
+      for (const { task_id } of subtaskIds) {
+        run('DELETE FROM work_checkpoints WHERE task_id = ?', [task_id]);
+        run('DELETE FROM openclaw_sessions WHERE task_id = ?', [task_id]);
+        run('DELETE FROM events WHERE task_id = ?', [task_id]);
+        run('DELETE FROM tasks WHERE id = ?', [task_id]);
+      }
+      run('DELETE FROM agent_mailbox WHERE convoy_id = ?', [convoy.id]);
+      run('DELETE FROM convoys WHERE id = ?', [convoy.id]);
+    }
+
     // Delete or nullify related records first (foreign key constraints)
     // Note: task_activities and task_deliverables have ON DELETE CASCADE
+    run('DELETE FROM work_checkpoints WHERE task_id = ?', [id]);
     run('DELETE FROM openclaw_sessions WHERE task_id = ?', [id]);
     run('DELETE FROM events WHERE task_id = ?', [id]);
-    // Conversations reference tasks - nullify or delete
+    // Conversations and Knowledge reference tasks - nullify or delete
     run('UPDATE conversations SET task_id = NULL WHERE task_id = ?', [id]);
+    run('UPDATE knowledge_entries SET task_id = NULL WHERE task_id = ?', [id]);
 
     // Now delete the task (cascades to task_activities and task_deliverables)
     run('DELETE FROM tasks WHERE id = ?', [id]);

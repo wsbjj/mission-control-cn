@@ -3,7 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { schema } from './schema';
 import { runMigrations } from './migrations';
-import { ensureCatalogSyncScheduled } from '@/lib/agent-catalog-sync';
+// Do not static-import agent-catalog-sync here — it imports @/lib/db and causes a circular
+// dependency that breaks API routes (e.g. /api/tasks/unread) under webpack. Schedule via dynamic import.
 
 const DB_PATH = process.env.DATABASE_PATH || path.join(process.cwd(), 'mission-control.db');
 
@@ -24,8 +25,16 @@ export function getDb(): Database.Database {
     // This handles both new and existing databases
     runMigrations(db);
 
-    // Keep Mission Control's agent catalog synced with OpenClaw-installed agents
-    ensureCatalogSyncScheduled();
+    // Recover orphaned autopilot cycles from prior crash/restart
+    import('@/lib/autopilot/recovery').then(({ recoverOrphanedCycles }) =>
+      recoverOrphanedCycles().catch(err => console.warn('[Recovery] Failed:', err))
+    );
+
+    import('@/lib/agent-catalog-sync')
+      .then(({ ensureCatalogSyncScheduled }) => {
+        ensureCatalogSyncScheduled();
+      })
+      .catch(err => console.warn('[AgentCatalog] Failed to schedule catalog sync:', err));
     
     if (isNewDb) {
       console.log('[DB] New database created at:', DB_PATH);

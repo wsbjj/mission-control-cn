@@ -285,6 +285,14 @@ export class OpenClawClient extends EventEmitter {
 
             console.log('[OpenClaw] Received:', data.type === 'res' ? `res:${String(data.id).slice(0, 8)}` : this.generateEventId(data).slice(0, 16));
 
+            // Forward gateway streaming events so subscribers can tap in
+            if (data.type === 'event' && data.event === 'agent' && data.payload) {
+              this.emit('agent_event', data.payload);
+            }
+            if (data.type === 'event' && data.event === 'chat' && data.payload) {
+              this.emit('chat_event', data.payload);
+            }
+
             // Handle challenge-response authentication (OpenClaw RequestFrame format)
             if (data.type === 'event' && data.event === 'connect.challenge') {
               console.log('[OpenClaw] Challenge received, responding...');
@@ -534,6 +542,33 @@ export class OpenClawClient extends EventEmitter {
       return result as GatewayConfigSnapshot;
     }
     return {};
+  }
+
+  /**
+   * Force-close the current connection so the next call to connect() starts fresh.
+   * Unlike disconnect(), this preserves autoReconnect so the client can recover.
+   */
+  forceReconnect(): void {
+    console.log('[OpenClaw] Force-reconnecting (dropping stale connection)');
+    if (this.ws) {
+      this.ws.onclose = null;
+      this.ws.onerror = null;
+      this.ws.onmessage = null;
+      this.ws.onopen = null;
+      if (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING) {
+        this.ws.close();
+      }
+      this.ws = null;
+    }
+    this.connected = false;
+    this.authenticated = false;
+    this.connecting = null;
+    this.messageHandlers.clear();
+    // Reject any pending requests so they don't leak
+    this.pendingRequests.forEach(({ reject }) => {
+      reject(new Error('Connection reset'));
+    });
+    this.pendingRequests.clear();
   }
 
   disconnect(): void {

@@ -1,27 +1,135 @@
 /**
  * 设置页 / Settings Page
- * 配置 Mission Control 路径、URL 与偏好 / Configure Mission Control paths, URLs, and preferences
+ * 配置路径、URL、偏好与数据库备份 / Paths, URLs, preferences, and database backups
  */
 
 'use client';
 
-import {useState, useEffect} from 'react';
-import {useRouter} from 'next/navigation';
-import {useTranslations} from 'next-intl';
-import {Settings, Save, RotateCcw, FolderOpen, Link as LinkIcon, Home, Globe2} from 'lucide-react';
-import {getConfig, updateConfig, resetConfig, type MissionControlConfig} from '@/lib/config';
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import {
+  Settings,
+  Save,
+  RotateCcw,
+  Home,
+  FolderOpen,
+  Link as LinkIcon,
+  Globe2,
+  HardDrive,
+  Download,
+  Upload,
+  Trash2,
+  RotateCw,
+  ChevronDown,
+  ChevronRight,
+  AlertTriangle,
+  Check,
+  Loader2,
+  Cloud,
+  CloudOff,
+  Shield,
+} from 'lucide-react';
+import { getConfig, updateConfig, resetConfig, type MissionControlConfig } from '@/lib/config';
+
+// ---------------------------------------------------------------------------
+// Types for backup data
+// ---------------------------------------------------------------------------
+
+interface BackupMetadata {
+  filename: string;
+  size: number;
+  timestamp: string;
+  migrationVersion: string;
+  location: 'local' | 's3' | 'both';
+  createdAt: string;
+}
+
+interface BackupListResponse {
+  backups: BackupMetadata[];
+  total: number;
+  s3: { configured: boolean; endpoint?: string; bucket?: string };
+}
+
+// ---------------------------------------------------------------------------
+// Utility: format bytes
+// ---------------------------------------------------------------------------
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return '0 B';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
+  return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
+}
+
+// ---------------------------------------------------------------------------
+// Settings Page Component
+// ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
   const t = useTranslations('settings');
   const router = useRouter(); // 路由实例，用于在设置页内跳转 / Router instance for navigation inside settings page
+
+  const formatBackupTime = useCallback(
+    (dateStr: string) => {
+      const now = Date.now();
+      const then = new Date(dateStr).getTime();
+      const diffMs = now - then;
+      if (diffMs < 60_000) return t('backupTimeJustNow');
+      if (diffMs < 3_600_000) return t('backupTimeMinutesAgo', {count: Math.floor(diffMs / 60_000)});
+      if (diffMs < 86_400_000) return t('backupTimeHoursAgo', {count: Math.floor(diffMs / 3_600_000)});
+      if (diffMs < 604_800_000) return t('backupTimeDaysAgo', {count: Math.floor(diffMs / 86_400_000)});
+      return new Date(dateStr).toLocaleDateString();
+    },
+    [t]
+  );
   const [config, setConfig] = useState<MissionControlConfig | null>(null); // 当前配置状态 / Current configuration state
   const [isSaving, setIsSaving] = useState(false); // 保存中状态 / Saving state
   const [saveSuccess, setSaveSuccess] = useState(false); // 保存成功提示状态 / Save success indicator
   const [error, setError] = useState<string | null>(null); // 错误信息状态 / Error message state
 
+  // Backup state
+  const [backups, setBackups] = useState<BackupMetadata[]>([]);
+  const [backupTotal, setBackupTotal] = useState(0);
+  const [s3Status, setS3Status] = useState<{ configured: boolean; endpoint?: string; bucket?: string }>({ configured: false });
+  const [isLoadingBackups, setIsLoadingBackups] = useState(false);
+  const [isCreatingBackup, setIsCreatingBackup] = useState(false);
+  const [isRestoringBackup, setIsRestoringBackup] = useState<string | null>(null);
+  const [isDeletingBackup, setIsDeletingBackup] = useState<string | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [backupSuccess, setBackupSuccess] = useState<string | null>(null);
+  const [showS3Config, setShowS3Config] = useState(false);
+  const [confirmRestore, setConfirmRestore] = useState<BackupMetadata | null>(null);
+
   useEffect(() => {
     setConfig(getConfig()); // 初始加载配置 / Load initial configuration
   }, []);
+
+  // Fetch backups on mount
+  const fetchBackups = useCallback(async () => {
+    setIsLoadingBackups(true);
+    setBackupError(null);
+    try {
+      const res = await fetch('/api/admin/backups');
+      if (!res.ok) throw new Error(`${t('backupFetchFailed')}: ${res.statusText}`);
+      const data: BackupListResponse = await res.json();
+      setBackups(data.backups);
+      setBackupTotal(data.total);
+      setS3Status(data.s3);
+    } catch (err) {
+      setBackupError(err instanceof Error ? err.message : t('backupLoadFailed'));
+    } finally {
+      setIsLoadingBackups(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    fetchBackups();
+  }, [fetchBackups]);
+
+  // ---------------------------------------------------------------------------
+  // Config handlers
+  // ---------------------------------------------------------------------------
 
   const handleSave = async () => {
     if (!config) return; // 若配置尚未加载则直接返回 / Guard when config is not yet loaded
@@ -56,6 +164,89 @@ export default function SettingsPage() {
     if (!config) return;
     setConfig({...config, [field]: value});
   };
+
+  // ---------------------------------------------------------------------------
+  // Backup handlers
+  // ---------------------------------------------------------------------------
+
+  const handleCreateBackup = async () => {
+    setIsCreatingBackup(true);
+    setBackupError(null);
+    setBackupSuccess(null);
+    try {
+      const res = await fetch('/api/admin/backups', { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || t('backupCreateFailed'));
+      }
+      const data = await res.json();
+      setBackupSuccess(
+        t('backupSuccessCreated', {
+          filename: data.backup.filename,
+          suffix: data.s3Uploaded ? t('backupSuccessUploadedSuffix') : '',
+        })
+      );
+      setTimeout(() => setBackupSuccess(null), 5000);
+      await fetchBackups();
+    } catch (err) {
+      setBackupError(err instanceof Error ? err.message : t('backupCreateFailed'));
+    } finally {
+      setIsCreatingBackup(false);
+    }
+  };
+
+  const handleRestore = async (backup: BackupMetadata) => {
+    setConfirmRestore(null);
+    setIsRestoringBackup(backup.filename);
+    setBackupError(null);
+    setBackupSuccess(null);
+    try {
+      const res = await fetch('/api/admin/backups/restore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename: backup.filename }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || t('backupRestoreFailed'));
+      }
+      const data = await res.json();
+      setBackupSuccess(data.message);
+      setTimeout(() => setBackupSuccess(null), 8000);
+      await fetchBackups();
+    } catch (err) {
+      setBackupError(err instanceof Error ? err.message : t('backupRestoreFailed'));
+    } finally {
+      setIsRestoringBackup(null);
+    }
+  };
+
+  const handleDeleteBackup = async (filename: string) => {
+    if (!confirm(t('backupDeleteConfirm', {filename}))) return;
+
+    setIsDeletingBackup(filename);
+    setBackupError(null);
+    try {
+      const res = await fetch(`/api/admin/backups/${encodeURIComponent(filename)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || t('backupDeleteFailed'));
+      }
+      setBackupSuccess(t('backupSuccessDeleted', {filename}));
+      setTimeout(() => setBackupSuccess(null), 3000);
+      await fetchBackups();
+    } catch (err) {
+      setBackupError(err instanceof Error ? err.message : t('backupDeleteFailed'));
+    } finally {
+      setIsDeletingBackup(null);
+    }
+  };
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   if (!config) {
     // 加载中占位界面 / Loading placeholder view
@@ -235,7 +426,7 @@ export default function SettingsPage() {
           </label>
         </section>
 
-        {/* 时区设置：控制交付物与系统时间显示时区 / Timezone settings: controls display timezone for deliverables & system timestamps */}
+        {/* 时区设置：控制交付物与系统时间显示时区 / Timezone settings */}
         <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
           <div className="flex items-center gap-2 mb-4">
             <Globe2 className="w-5 h-5 text-mc-accent" />
@@ -266,7 +457,265 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* 环境变量说明区块 / Environment variables note section */}
+        {/* Database backups / 数据库备份 */}
+        <section className="mb-8 p-6 bg-mc-bg-secondary border border-mc-border rounded-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <HardDrive className="w-5 h-5 text-mc-accent" />
+              <h2 className="text-xl font-semibold text-mc-text">{t('backupSectionTitle')}</h2>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-mc-text-secondary">
+              {s3Status.configured ? (
+                <span className="flex items-center gap-1 text-green-400">
+                  <Cloud className="w-3.5 h-3.5" /> {t('backupS3Connected')}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1">
+                  <CloudOff className="w-3.5 h-3.5" /> {t('backupS3NotConfigured')}
+                </span>
+              )}
+              <span>{t('backupCount', {count: backupTotal})}</span>
+            </div>
+          </div>
+
+          <p className="text-sm text-mc-text-secondary mb-4">{t('backupIntro')}</p>
+
+          {/* Backup action buttons */}
+          <div className="flex items-center gap-3 mb-4">
+            <button
+              onClick={handleCreateBackup}
+              disabled={isCreatingBackup}
+              className="px-4 py-2 bg-mc-accent text-mc-bg rounded hover:bg-mc-accent/90 flex items-center gap-2 disabled:opacity-50 text-sm font-medium"
+            >
+              {isCreatingBackup ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Download className="w-4 h-4" />
+              )}
+              {isCreatingBackup ? t('backupCreating') : t('backupCreateNow')}
+            </button>
+            <button
+              onClick={fetchBackups}
+              disabled={isLoadingBackups}
+              className="px-3 py-2 border border-mc-border rounded hover:bg-mc-bg-tertiary text-mc-text-secondary flex items-center gap-1.5 text-sm"
+            >
+              <RotateCw className={`w-3.5 h-3.5 ${isLoadingBackups ? 'animate-spin' : ''}`} />
+              {t('backupRefresh')}
+            </button>
+          </div>
+
+          {/* Backup success/error messages */}
+          {backupSuccess && (
+            <div className="mb-4 p-3 bg-green-500/10 border border-green-500/30 rounded text-green-400 text-sm flex items-center gap-2">
+              <Check className="w-4 h-4 flex-shrink-0" />
+              {backupSuccess}
+            </div>
+          )}
+          {backupError && (
+            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              {backupError}
+            </div>
+          )}
+
+          {/* Backup list table */}
+          {isLoadingBackups && backups.length === 0 ? (
+            <div className="py-8 text-center text-mc-text-secondary text-sm">
+              <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
+              {t('backupLoadingList')}
+            </div>
+          ) : backups.length === 0 ? (
+            <div className="py-8 text-center text-mc-text-secondary text-sm border border-mc-border rounded bg-mc-bg">
+              {t('backupEmpty')}
+            </div>
+          ) : (
+            <div className="border border-mc-border rounded overflow-hidden">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-mc-bg-tertiary border-b border-mc-border">
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium">{t('backupTableFile')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-20">{t('backupTableSize')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-24">{t('backupTableCreated')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-16">{t('backupTableVersion')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-20">{t('backupTableLocation')}</th>
+                    <th className="text-right px-4 py-2.5 text-mc-text-secondary font-medium w-32">{t('backupTableActions')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {backups.map((backup) => (
+                    <tr key={backup.filename} className="border-b border-mc-border last:border-0 hover:bg-mc-bg-tertiary/50">
+                      <td className="px-4 py-2.5">
+                        <div className="text-mc-text font-mono text-xs truncate max-w-[300px]" title={backup.filename}>
+                          {backup.filename}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5 text-mc-text-secondary text-xs">
+                        {formatBytes(backup.size)}
+                      </td>
+                      <td className="px-4 py-2.5 text-mc-text-secondary text-xs" title={new Date(backup.timestamp).toLocaleString()}>
+                        {formatBackupTime(backup.timestamp)}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <span className="text-xs font-mono px-1.5 py-0.5 bg-mc-bg rounded text-mc-text-secondary">
+                          v{backup.migrationVersion}
+                        </span>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs">
+                        {backup.location === 'both' ? (
+                          <span className="text-green-400 flex items-center gap-1">
+                            <Cloud className="w-3 h-3" /> {t('backupLocationBoth')}
+                          </span>
+                        ) : backup.location === 's3' ? (
+                          <span className="text-blue-400 flex items-center gap-1">
+                            <Cloud className="w-3 h-3" /> {t('backupLocationS3')}
+                          </span>
+                        ) : (
+                          <span className="text-mc-text-secondary">{t('backupLocationLocal')}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            onClick={() => setConfirmRestore(backup)}
+                            disabled={isRestoringBackup !== null}
+                            className="px-2.5 py-1 text-xs rounded border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 flex items-center gap-1"
+                            title={t('backupRestoreTitle')}
+                          >
+                            {isRestoringBackup === backup.filename ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Upload className="w-3 h-3" />
+                            )}
+                            {t('backupRestore')}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteBackup(backup.filename)}
+                            disabled={isDeletingBackup !== null}
+                            className="px-2 py-1 text-xs rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
+                            title={t('backupDeleteTitle')}
+                          >
+                            {isDeletingBackup === backup.filename ? (
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Trash2 className="w-3 h-3" />
+                            )}
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* S3 Configuration (collapsible) */}
+          <div className="mt-4 border border-mc-border rounded">
+            <button
+              onClick={() => setShowS3Config(!showS3Config)}
+              className="w-full flex items-center justify-between px-4 py-3 text-sm text-mc-text-secondary hover:bg-mc-bg-tertiary/50"
+            >
+              <span className="flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                {t('backupS3ConfigTitle')}
+              </span>
+              {showS3Config ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+            </button>
+            {showS3Config && (
+              <div className="px-4 pb-4 border-t border-mc-border">
+                <p className="text-xs text-mc-text-secondary mt-3 mb-3">
+                  {t('backupS3ConfigIntroBefore')}
+                  <code className="px-1 py-0.5 bg-mc-bg rounded">.env.local</code>
+                  {t('backupS3ConfigIntroAfter')}
+                </p>
+                <div className="space-y-2 text-xs font-mono">
+                  <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
+                    <span className="text-mc-accent w-28">S3_ENDPOINT</span>
+                    <span className="text-mc-text-secondary">
+                      {s3Status.endpoint || t('backupS3NotSet')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
+                    <span className="text-mc-accent w-28">S3_BUCKET</span>
+                    <span className="text-mc-text-secondary">
+                      {s3Status.bucket || t('backupS3NotSet')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
+                    <span className="text-mc-accent w-28">S3_ACCESS_KEY</span>
+                    <span className="text-mc-text-secondary">
+                      {s3Status.configured ? '••••••••' : t('backupS3NotSet')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
+                    <span className="text-mc-accent w-28">S3_SECRET_KEY</span>
+                    <span className="text-mc-text-secondary">
+                      {s3Status.configured ? '••••••••' : t('backupS3NotSet')}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
+                    <span className="text-mc-accent w-28">S3_REGION</span>
+                    <span className="text-mc-text-secondary">{t('backupS3RegionDefault')}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-mc-text-secondary mt-3">{t('backupS3FooterNote')}</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Restore Confirmation Dialog */}
+        {confirmRestore && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <div className="bg-mc-bg-secondary border border-mc-border rounded-lg p-6 max-w-md w-full mx-4 shadow-xl">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2 bg-amber-500/10 rounded-full">
+                  <AlertTriangle className="w-6 h-6 text-amber-400" />
+                </div>
+                <h3 className="text-lg font-semibold text-mc-text">{t('backupConfirmRestoreTitle')}</h3>
+              </div>
+
+              <p className="text-sm text-mc-text-secondary mb-4">{t('backupConfirmRestoreBody')}</p>
+
+              <div className="p-3 bg-mc-bg rounded border border-mc-border mb-4 text-xs space-y-1.5">
+                <div className="flex justify-between">
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelFile')}</span>
+                  <span className="text-mc-text font-mono">{confirmRestore.filename}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelSize')}</span>
+                  <span className="text-mc-text">{formatBytes(confirmRestore.size)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelCreated')}</span>
+                  <span className="text-mc-text">{new Date(confirmRestore.timestamp).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelMigration')}</span>
+                  <span className="text-mc-text font-mono">v{confirmRestore.migrationVersion}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3 justify-end">
+                <button
+                  onClick={() => setConfirmRestore(null)}
+                  className="px-4 py-2 text-sm border border-mc-border rounded hover:bg-mc-bg-tertiary text-mc-text-secondary"
+                >
+                  {t('backupConfirmCancel')}
+                </button>
+                <button
+                  onClick={() => handleRestore(confirmRestore)}
+                  className="px-4 py-2 text-sm bg-amber-500 text-black rounded hover:bg-amber-400 font-medium flex items-center gap-2"
+                >
+                  <Upload className="w-4 h-4" />
+                  {t('backupConfirmRestoreButton')}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* 环境变量说明 / Environment variables */}
         <section className="p-6 bg-blue-500/10 border border-blue-500/30 rounded-lg">
           <h3 className="text-lg font-semibold text-blue-400 mb-2">
             {t('envVarsTitle')}
@@ -280,6 +729,7 @@ export default function SettingsPage() {
             <li>{t('envVarProjectsPath')}</li>
             <li>{t('envVarGatewayUrl')}</li>
             <li>{t('envVarGatewayToken')}</li>
+            <li>{t('envVarS3Backup')}</li>
           </ul>
           <p className="text-xs text-blue-400 mt-3">
             {t('envVarsPrecedence')}

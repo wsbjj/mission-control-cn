@@ -1,10 +1,11 @@
 'use client';
 
 import {useEffect, useState} from 'react';
-import {Plus, ChevronRight, GripVertical, ArrowRightLeft} from 'lucide-react';
+import {Plus, ChevronRight, GripVertical, ArrowRightLeft, AlertTriangle, MessageSquare} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
 import {getConfig} from '@/lib/config';
+import {useUnreadCounts} from '@/hooks/useUnreadCounts';
 import type {Task, TaskStatus} from '@/lib/types';
 import {TaskModal} from './TaskModal';
 import {formatDistanceToNow} from 'date-fns';
@@ -22,6 +23,7 @@ const COLUMNS: {id: TaskStatus; labelKey: string; color: string}[] = [
   {id: 'inbox', labelKey: 'columnInbox', color: 'border-t-mc-accent-pink'},
   {id: 'assigned', labelKey: 'columnAssigned', color: 'border-t-mc-accent-yellow'},
   {id: 'in_progress', labelKey: 'columnInProgress', color: 'border-t-mc-accent'},
+  {id: 'convoy_active', labelKey: 'columnConvoy', color: 'border-t-cyan-400'},
   {id: 'testing', labelKey: 'columnTesting', color: 'border-t-mc-accent-cyan'},
   {id: 'review', labelKey: 'columnReview', color: 'border-t-mc-accent-purple'},
   {id: 'verification', labelKey: 'columnVerification', color: 'border-t-orange-500'},
@@ -31,7 +33,7 @@ const COLUMNS: {id: TaskStatus; labelKey: string; color: string}[] = [
 export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true}: MissionQueueProps) {
   const {tasks, updateTaskStatus, addEvent} = useMissionControl();
   const t = useTranslations('missionQueue');
-
+  const unreadCounts = useUnreadCounts();
   const [compactEmptyColumns, setCompactEmptyColumns] = useState(true);
   useEffect(() => {
     const cfg = getConfig();
@@ -50,6 +52,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
   const [draggedTask, setDraggedTask] = useState<Task | null>(null);
   const [mobileStatus, setMobileStatus] = useState<TaskStatus>('planning');
   const [statusMoveTask, setStatusMoveTask] = useState<Task | null>(null);
+  const [pendingMove, setPendingMove] = useState<{ task: Task; targetStatus: TaskStatus } | null>(null);
 
   // 按最近更新时间（若无则按创建时间）降序排序任务，
   // 确保最近更新或新建的任务显示在列顶部 / Sort tasks by most recent updated_at (fallback to created_at)
@@ -62,6 +65,51 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
         const bTime = new Date(b.updated_at || b.created_at).getTime();
         return bTime - aTime;
       });
+
+  // Active pipeline states where manual moves are dangerous
+  const ACTIVE_PIPELINE_STATES: TaskStatus[] = ['assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification'];
+
+  const pipelineStateDescription = (status: TaskStatus): string => {
+    switch (status) {
+      case 'assigned':
+        return t('pipelineStateAssigned');
+      case 'in_progress':
+        return t('pipelineStateInProgress');
+      case 'convoy_active':
+        return t('pipelineStateConvoyActive');
+      case 'testing':
+        return t('pipelineStateTesting');
+      case 'review':
+        return t('pipelineStateReview');
+      case 'verification':
+        return t('pipelineStateVerification');
+      default:
+        return status;
+    }
+  };
+
+  const getPipelineWarning = (task: Task, targetStatus: TaskStatus): string | null => {
+    if (!ACTIVE_PIPELINE_STATES.includes(task.status)) return null;
+    if (task.status === targetStatus) return null;
+    return t('pipelineWarningBody', {state: pipelineStateDescription(task.status)});
+  };
+
+  const attemptMove = async (task: Task, targetStatus: TaskStatus) => {
+    const warning = getPipelineWarning(task, targetStatus);
+    if (warning) {
+      setPendingMove({ task, targetStatus });
+      return;
+    }
+    await updateTaskStatusWithPersist(task, targetStatus);
+  };
+
+  const confirmPendingMove = async () => {
+    if (!pendingMove) return;
+    const { task, targetStatus } = pendingMove;
+    setPendingMove(null);
+    setStatusMoveTask(null);
+    await updateTaskStatusWithPersist(task, targetStatus);
+  };
 
   const updateTaskStatusWithPersist = async (task: Task, targetStatus: TaskStatus) => {
     if (task.status === targetStatus) return;
@@ -124,11 +172,16 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
       return;
     }
 
-    await updateTaskStatusWithPersist(draggedTask, targetStatus);
+    await attemptMove(draggedTask, targetStatus);
     setDraggedTask(null);
   };
 
   const mobileTasks = getTasksByStatus(mobileStatus);
+
+  const getColumnLabel = (status: TaskStatus) => {
+    const col = COLUMNS.find((c) => c.id === status);
+    return col ? t(col.labelKey) : status;
+  };
 
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
@@ -179,6 +232,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                       isDragging={draggedTask?.id === task.id}
                       mobileMode={false}
                       portraitMode={false}
+                      unreadCount={unreadCounts[task.id] || 0}
                     />
                   ))}
                 </div>
@@ -224,6 +278,7 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                   isDragging={false}
                   mobileMode
                   portraitMode={isPortrait}
+                  unreadCount={unreadCounts[task.id] || 0}
                 />
               ))
             )}
@@ -249,8 +304,10 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                 <button
                   key={column.id}
                   onClick={async () => {
-                    await updateTaskStatusWithPersist(statusMoveTask, column.id);
-                    setStatusMoveTask(null);
+                    await attemptMove(statusMoveTask, column.id);
+                    if (!getPipelineWarning(statusMoveTask, column.id)) {
+                      setStatusMoveTask(null);
+                    }
                   }}
                   disabled={statusMoveTask.status === column.id}
                   className="w-full min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-left text-sm disabled:opacity-40"
@@ -262,6 +319,99 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
           </div>
         </div>
       )}
+
+      {/* Pipeline override warning dialog */}
+      {pendingMove && (
+        <div className="fixed inset-0 z-[60] bg-black/60 p-4 flex items-center justify-center" onClick={() => setPendingMove(null)}>
+          <div
+            className="w-full max-w-md bg-mc-bg-secondary border border-amber-500/30 rounded-xl p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <div className="p-2 rounded-lg bg-amber-500/10">
+                <AlertTriangle className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-mc-text">{t('pipelineOverrideTitle')}</h3>
+                <p className="text-sm text-mc-text-secondary mt-1">
+                  {getPipelineWarning(pendingMove.task, pendingMove.targetStatus)}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 p-3 bg-mc-bg rounded-lg border border-mc-border text-sm">
+              <span className="text-mc-text-secondary">{t('pipelineMovingLabel')}</span>
+              <span className="font-medium text-mc-text truncate">{pendingMove.task.title}</span>
+              <span className="text-mc-text-secondary mx-1">&rarr;</span>
+              <span className="font-medium text-mc-text">{getColumnLabel(pendingMove.targetStatus)}</span>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setPendingMove(null)}
+                className="min-h-11 px-4 rounded-lg text-sm text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary"
+              >
+                {t('pipelineCancel')}
+              </button>
+              <button
+                onClick={confirmPendingMove}
+                className="min-h-11 px-4 rounded-lg text-sm font-medium bg-amber-500 text-black hover:bg-amber-400"
+              >
+                {t('pipelineOverrideMove')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AssignedStatusBadge({task, portraitMode}: {task: Task; portraitMode: boolean}) {
+  const t = useTranslations('missionQueue');
+  const [retrying, setRetrying] = useState(false);
+  const updatedAt = new Date(task.updated_at).getTime();
+  const staleMs = Date.now() - updatedAt;
+  const isStale = staleMs > 2 * 60 * 1000; // 2 minutes
+
+  const handleRetryDispatch = async (e: React.MouseEvent) => {
+    e.stopPropagation(); // Don't open the task modal
+    setRetrying(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/dispatch`, { method: 'POST' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        console.error('Retry dispatch failed:', data.error);
+      }
+    } catch (err) {
+      console.error('Retry dispatch error:', err);
+    } finally {
+      setRetrying(false);
+    }
+  };
+
+  if (isStale) {
+    const staleMinutes = Math.floor(staleMs / 60000);
+    return (
+      <div className={`${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-amber-500/10 rounded-md border border-amber-500/30`}>
+        <div className="flex items-center gap-2 mb-1.5">
+          <div className="w-2 h-2 bg-amber-400 rounded-full flex-shrink-0" />
+          <span className="text-xs text-amber-200">{t('assignedStuckMinutes', {minutes: staleMinutes})}</span>
+        </div>
+        <button
+          type="button"
+          onClick={handleRetryDispatch}
+          disabled={retrying}
+          className="text-[11px] px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 rounded border border-amber-500/30 disabled:opacity-50"
+        >
+          {retrying ? t('dispatchingShort') : t('retryDispatch')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-yellow-500/10 rounded-md border border-yellow-500/30`}>
+      <div className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" />
+      <span className="text-xs text-yellow-200">{t('assignedValidating')}</span>
     </div>
   );
 }
@@ -274,9 +424,10 @@ interface TaskCardProps {
   isDragging: boolean;
   mobileMode: boolean;
   portraitMode?: boolean;
+  unreadCount?: number;
 }
 
-function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true}: TaskCardProps) {
+function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileMode, portraitMode = true, unreadCount = 0}: TaskCardProps) {
   const t = useTranslations('missionQueue'); // 任务卡片文案国际化 / i18n for task card copy
   const locale = useLocale(); // 当前界面语言 / Current UI locale
   const dateLocale = locale === 'zh' ? zhCN : undefined; // 中文使用 zhCN，相对时间自动汉化 / Use zhCN for Chinese locale
@@ -295,6 +446,8 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
   };
 
   const isPlanning = task.status === 'planning';
+  const isConvoyActive = task.status === 'convoy_active';
+  const isSubtask = !!task.is_subtask;
   const isAssigned = task.status === 'assigned';
   const dispatchError = task.planning_dispatch_error;
 
@@ -314,7 +467,15 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
       )}
 
       <div className={portraitMode ? 'p-4' : 'p-3'}>
-        <h4 className={`font-medium leading-snug line-clamp-2 ${portraitMode ? 'text-sm mb-3' : 'text-xs mb-2'}`}>{task.title}</h4>
+        <div className="flex items-start justify-between gap-1.5">
+          <h4 className={`font-medium leading-snug line-clamp-2 ${portraitMode ? 'text-sm mb-3' : 'text-xs mb-2'}`}>{task.title}</h4>
+          {unreadCount > 0 && (
+            <span className="flex-shrink-0 flex items-center gap-1 px-1.5 py-0.5 bg-mc-accent/15 text-mc-accent rounded text-[10px] font-medium" title={`${unreadCount} unread message${unreadCount !== 1 ? 's' : ''}`}>
+              <MessageSquare className="w-2.5 h-2.5" />
+              {unreadCount}
+            </span>
+          )}
+        </div>
 
         {isPlanning && (
           <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-purple-500/10 rounded-md border border-purple-500/20`}>
@@ -322,6 +483,19 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
             <span className="text-xs text-purple-400 font-medium">
               {t('continuePlanning') /* 继续规划提示 / Continue planning hint */}
             </span>
+          </div>
+        )}
+
+        {isConvoyActive && (
+          <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-cyan-500/10 rounded-md border border-cyan-500/20`}>
+            <div className="w-2 h-2 bg-cyan-400 rounded-full animate-pulse flex-shrink-0" />
+            <span className="text-xs text-cyan-300 font-medium">Convoy active — sub-tasks running</span>
+          </div>
+        )}
+
+        {isSubtask && (
+          <div className={`flex items-center gap-1 ${portraitMode ? 'mb-2' : 'mb-1.5'}`}>
+            <span className="text-[10px] px-1.5 py-0.5 bg-cyan-500/15 text-cyan-400 rounded border border-cyan-500/20">SUB-TASK</span>
           </div>
         )}
 
@@ -335,12 +509,7 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
         )}
 
         {isAssigned && !dispatchError && (
-          <div className={`flex items-center gap-2 ${portraitMode ? 'mb-3 py-2 px-3' : 'mb-2 py-1.5 px-2.5'} bg-yellow-500/10 rounded-md border border-yellow-500/30`}>
-            <div className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0" />
-            <span className="text-xs text-yellow-200">
-              {t('assignedValidating') /* 已分配并校验提示 / Assigned and validating hint */}
-            </span>
-          </div>
+          <AssignedStatusBadge task={task} portraitMode={portraitMode} />
         )}
 
         {task.status === 'inbox' && !task.assigned_agent_id && (
@@ -375,7 +544,15 @@ function TaskCard({task, onDragStart, onClick, onMoveStatus, isDragging, mobileM
           </div>
         )}
 
-          <div className="flex items-center justify-between gap-2 pt-2 border-t border-mc-border/20">
+        {task.workspace_path && (
+          <div className={`flex items-center gap-1.5 ${portraitMode ? 'mb-2' : 'mb-1.5'}`}>
+            <span className="text-[10px] px-1.5 py-0.5 bg-purple-500/15 text-purple-400 rounded border border-purple-500/20">
+              {task.workspace_strategy === 'worktree' ? '\u{1F500}' : '\u{1F512}'} ISOLATED
+            </span>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-mc-border/20">
           <div className="flex items-center gap-1.5">
             <div className={`w-1.5 h-1.5 rounded-full ${priorityDots[task.priority]}`} />
             <span className={`text-xs capitalize ${priorityStyles[task.priority]}`}>{task.priority}</span>

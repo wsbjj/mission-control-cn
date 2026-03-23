@@ -79,7 +79,12 @@ export function middleware(request: NextRequest) {
       }
     }
 
-    // Webhook routes use their own HMAC signature validation — bypass token auth
+    // Health check endpoints — bypass token auth (monitored externally) / 健康检查端点，外部监控用，跳过令牌
+    if (pathname === '/api/health' || pathname.startsWith('/api/health/')) {
+      return NextResponse.next();
+    }
+
+    // Webhook routes use their own HMAC signature validation — bypass token auth / Webhook 自行校验 HMAC，跳过令牌
     if (pathname.startsWith('/api/webhooks/')) {
       return NextResponse.next();
     }

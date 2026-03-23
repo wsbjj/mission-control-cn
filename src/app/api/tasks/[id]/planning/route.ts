@@ -75,6 +75,9 @@ export async function POST(
   const { id: taskId } = await params;
 
   try {
+    const body = await request.json().catch(() => ({}));
+    const customSessionKeyPrefix = body.session_key_prefix;
+
     // Get task
     const task = getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as {
       id: string;
@@ -102,6 +105,14 @@ export async function POST(
       [task.workspace_id]
     );
 
+    // Get assigned agent if any (for session_key_prefix)
+    const taskWithAgent = getDb().prepare(`
+      SELECT a.session_key_prefix 
+      FROM tasks t 
+      LEFT JOIN agents a ON t.assigned_agent_id = a.id 
+      WHERE t.id = ?
+    `).get(taskId) as { session_key_prefix?: string } | undefined;
+
     const otherOrchestrators = queryAll<{
       id: string;
       name: string;
@@ -125,8 +136,9 @@ export async function POST(
     }
 
     // Create session key for this planning task
-    // Use the master agent's session_key_prefix if set, otherwise default to 'agent:main:'
-    const planningPrefix = (defaultMaster?.session_key_prefix || DEFAULT_SESSION_KEY_PREFIX) + 'planning:';
+    // Priority: custom prefix > assigned agent's prefix > master agent's prefix > default prefix
+    const basePrefix = customSessionKeyPrefix || taskWithAgent?.session_key_prefix || defaultMaster?.session_key_prefix || DEFAULT_SESSION_KEY_PREFIX;
+    const planningPrefix = basePrefix + 'planning:';
     const sessionKey = `${planningPrefix}${taskId}`;
 
     // Build the initial planning prompt

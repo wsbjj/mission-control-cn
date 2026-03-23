@@ -1,6 +1,6 @@
 {
   "name": "mission-control",
-  "version": "1.5.3",
+  "version": "2.3.1",
   "private": true,
   "scripts": {
     "dev": "node scripts/dev.js",
@@ -14,11 +14,13 @@
     "db:reset": "rm -f mission-control.db mission-control.db-* && npm run db:seed"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1014.0",
     "@hello-pangea/dnd": "^17.0.0",
     "better-sqlite3": "^12.6.2",
     "clsx": "^2.1.1",
     "css-tree": "^3.1.0",
     "date-fns": "^4.1.0",
+    "echarts": "^6.0.0",
     "lucide-react": "^0.468.0",
     "next": "14.2.21",
     "next-intl": "^3.26.0",

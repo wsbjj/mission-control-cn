@@ -35,7 +35,29 @@ export function AgentModal({agent, onClose, workspaceId, onAgentCreated}: AgentM
     user_md: agent?.user_md || '',
     agents_md: agent?.agents_md || '',
     model: agent?.model || '',
+    session_key_prefix: agent?.session_key_prefix || '',
   });
+
+  // Fetch fresh agent data when modal opens (store data may be stale) / 打开弹窗时拉取最新智能体数据（store 可能过期）
+  useEffect(() => {
+    if (!agent?.id) return;
+    let cancelled = false;
+    fetch(`/api/agents/${agent.id}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then(fresh => {
+        if (cancelled || !fresh) return;
+        setForm(prev => ({
+          ...prev,
+          soul_md: fresh.soul_md || '',
+          user_md: fresh.user_md || '',
+          agents_md: fresh.agents_md || '',
+        }));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [agent?.id]);
 
   // Load available models from OpenClaw config / 加载可用模型列表
   useEffect(() => {
@@ -68,11 +90,15 @@ export function AgentModal({agent, onClose, workspaceId, onAgentCreated}: AgentM
       const url = agent ? `/api/agents/${agent.id}` : '/api/agents';
       const method = agent ? 'PATCH' : 'POST';
 
+      const trimmedPrefix = form.session_key_prefix?.trim();
+      const normalizedPrefix = !trimmedPrefix ? '' : trimmedPrefix.endsWith(':') ? trimmedPrefix : trimmedPrefix + ':';
+
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           ...form,
+          session_key_prefix: normalizedPrefix || undefined,
           workspace_id: workspaceId || agent?.workspace_id || 'default',
         }),
       });
@@ -293,6 +319,18 @@ export function AgentModal({agent, onClose, workspaceId, onAgentCreated}: AgentM
                 <p className="text-xs text-mc-text-secondary mt-1">
                   {t('modelHelp') /* 模型说明 / Model help text */}
                 </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">{t('sessionKeyLabel')}</label>
+                <input
+                  type="text"
+                  value={form.session_key_prefix}
+                  onChange={(e) => setForm({...form, session_key_prefix: e.target.value})}
+                  className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
+                  placeholder={t('sessionKeyPlaceholder')}
+                />
+                <p className="text-xs text-mc-text-secondary mt-1">{t('sessionKeyHelp')}</p>
               </div>
             </div>
           )}

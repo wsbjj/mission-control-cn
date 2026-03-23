@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
+import { createConvoy } from '@/lib/convoy';
 import type { PlanningQuestion, PlanningCategory } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -132,10 +133,38 @@ export async function POST(
       'SELECT * FROM planning_specs WHERE id = ?'
     ).get(specId);
 
+    // Check if planning spec includes convoy decomposition
+    // The planning agent can include JSON with {convoy: true, subtasks: [...]} in the spec
+    let convoyCreated = false;
+    try {
+      const planningSpec = getDb().prepare('SELECT planning_spec FROM tasks WHERE id = ?').get(taskId) as { planning_spec?: string } | undefined;
+      if (planningSpec?.planning_spec) {
+        const parsed = JSON.parse(planningSpec.planning_spec);
+        const specData = typeof parsed === 'string' ? JSON.parse(parsed) : parsed;
+        if (specData.convoy === true && Array.isArray(specData.subtasks) && specData.subtasks.length > 0) {
+          createConvoy({
+            parentTaskId: taskId,
+            name: task.title,
+            strategy: 'planning',
+            decompositionSpec: JSON.stringify(specData),
+            subtasks: specData.subtasks.map((s: { title: string; description?: string; suggested_role?: string }) => ({
+              title: s.title,
+              description: s.description,
+            })),
+          });
+          convoyCreated = true;
+        }
+      }
+    } catch (err) {
+      // Convoy creation from planning is best-effort
+      console.warn('[Planning Approve] Convoy auto-creation failed:', err);
+    }
+
     return NextResponse.json({
       success: true,
       spec,
-      specMarkdown
+      specMarkdown,
+      convoyCreated,
     });
   } catch (error) {
     console.error('Failed to approve spec:', error);

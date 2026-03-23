@@ -25,12 +25,39 @@ export function extractJSON(text: string): object | null {
   }
 
   // Try to extract from markdown code block (```json ... ``` or ``` ... ```)
-  const codeBlockMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (codeBlockMatch) {
+  // Use greedy match first (handles nested backticks), then lazy as fallback
+  const codeBlockGreedy = text.match(/```(?:json)?\s*([\s\S]*)```/);
+  if (codeBlockGreedy) {
     try {
-      return JSON.parse(codeBlockMatch[1].trim());
+      return JSON.parse(codeBlockGreedy[1].trim());
     } catch {
       // Continue
+    }
+  }
+  const codeBlockLazy = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (codeBlockLazy) {
+    try {
+      return JSON.parse(codeBlockLazy[1].trim());
+    } catch {
+      // Continue
+    }
+  }
+  // Handle unclosed code blocks (LLM generated opening ``` but no closing ```)
+  const unclosedBlock = text.match(/```(?:json)?\s*(\{[\s\S]*)/);
+  if (unclosedBlock) {
+    const jsonCandidate = unclosedBlock[1].trim();
+    try {
+      return JSON.parse(jsonCandidate);
+    } catch {
+      // Try to find valid JSON by trimming from the end
+      const lastBrace = jsonCandidate.lastIndexOf('}');
+      if (lastBrace > 0) {
+        try {
+          return JSON.parse(jsonCandidate.slice(0, lastBrace + 1));
+        } catch {
+          // Continue
+        }
+      }
     }
   }
 

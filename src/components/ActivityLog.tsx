@@ -103,7 +103,7 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
     };
   }, [taskId, pollForActivities]);
 
-  const getActivityIcon = (type: string) => {
+  const getActivityIcon = (type: string, message?: string) => {
     switch (type) {
       case 'spawned':
         return '🚀';
@@ -114,6 +114,10 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
       case 'file_created':
         return '📄';
       case 'status_changed':
+        // Convoy-specific icons based on message content
+        if (message?.includes('Convoy')) return '🚚';
+        if (message?.includes('health:')) return '💓';
+        if (message?.includes('nudged')) return '👋';
         return '🔄';
       default:
         return '📝';
@@ -146,7 +150,7 @@ export function ActivityLog({ taskId }: ActivityLogProps) {
         >
           {/* Icon */}
           <div className="text-2xl flex-shrink-0">
-            {getActivityIcon(activity.activity_type)}
+            {getActivityIcon(activity.activity_type, activity.message)}
           </div>
 
           {/* Content */}

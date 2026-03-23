@@ -2,7 +2,7 @@
 
 import {useState, useCallback} from 'react';
 import TextareaAutosize from 'react-textarea-autosize'; // 自适应高度文本域 / Auto-resizing textarea
-import {X, Save, Trash2, Activity, Package, Bot, ClipboardList, Plus, Users, ImageIcon} from 'lucide-react';
+import {X, Save, Trash2, Activity, Package, Bot, ClipboardList, Plus, Users, ImageIcon, Truck, Radio, MessageSquare, ExternalLink, HardDrive} from 'lucide-react';
 import {useMissionControl} from '@/lib/store';
 import {triggerAutoDispatch, shouldTriggerAutoDispatch} from '@/lib/auto-dispatch';
 import {ActivityLog} from './ActivityLog';
@@ -12,10 +12,14 @@ import {PlanningTab} from './PlanningTab';
 import {TeamTab} from './TeamTab';
 import {AgentModal} from './AgentModal';
 import {TaskImages} from './TaskImages';
+import {ConvoyTab} from './ConvoyTab';
+import {AgentLiveTab} from './AgentLiveTab';
+import {TaskChatTab} from './TaskChatTab';
+import {WorkspaceTab} from './WorkspaceTab';
 import type {Task, TaskPriority, TaskStatus} from '@/lib/types';
 import {useTranslations} from 'next-intl';
 
-type TabType = 'overview' | 'planning' | 'team' | 'activity' | 'deliverables' | 'images' | 'sessions';
+type TabType = 'overview' | 'planning' | 'convoy' | 'team' | 'activity' | 'deliverables' | 'images' | 'sessions' | 'workspace' | 'agent-live' | 'chat';
 
 interface TaskModalProps {
   task?: Task;
@@ -29,8 +33,10 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAgentModal, setShowAgentModal] = useState(false);
   const [usePlanningMode, setUsePlanningMode] = useState(false);
-  // Auto-switch to planning tab if task is in planning status
-  const [activeTab, setActiveTab] = useState<TabType>(task?.status === 'planning' ? 'planning' : 'overview');
+  // Auto-switch to relevant tab based on task status
+  const [activeTab, setActiveTab] = useState<TabType>(
+    task?.status === 'planning' ? 'planning' : task?.status === 'convoy_active' ? 'convoy' : 'overview'
+  );
 
   // Stable callback for when spec is locked - use window.location.reload() to refresh data
   const handleSpecLocked = useCallback(() => {
@@ -187,11 +193,19 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
   const tabs = [
     {id: 'overview' as TabType, labelKey: 'tabOverview', icon: null},
     {id: 'planning' as TabType, labelKey: 'tabPlanning', icon: <ClipboardList className="w-4 h-4" />},
+    {id: 'convoy' as TabType, labelKey: 'tabConvoy', icon: <Truck className="w-4 h-4" />},
     {id: 'team' as TabType, labelKey: 'tabTeam', icon: <Users className="w-4 h-4" />},
     {id: 'activity' as TabType, labelKey: 'tabActivity', icon: <Activity className="w-4 h-4" />},
     {id: 'deliverables' as TabType, labelKey: 'tabDeliverables', icon: <Package className="w-4 h-4" />},
     {id: 'images' as TabType, labelKey: 'tabImages', icon: <ImageIcon className="w-4 h-4" />},
     {id: 'sessions' as TabType, labelKey: 'tabSessions', icon: <Bot className="w-4 h-4" />},
+    ...(task?.workspace_path
+      ? [{id: 'workspace' as TabType, labelKey: 'tabWorkspace', icon: <HardDrive className="w-4 h-4" />}]
+      : []),
+    {id: 'chat' as TabType, labelKey: 'tabChat', icon: <MessageSquare className="w-4 h-4" />},
+    ...(task && ['in_progress', 'convoy_active', 'testing', 'verification'].includes(task.status)
+      ? [{id: 'agent-live' as TabType, labelKey: 'tabAgentLive', icon: <Radio className="w-4 h-4" />}]
+      : []),
   ];
 
   return (
@@ -227,7 +241,7 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
                 }`}
               >
                 {tab.icon}
-                {t(tab.labelKey as any) /* 标签名称 / Tab label */}
+                {t(tab.labelKey) /* 标签名称 / Tab label */}
               </button>
             ))}
           </div>
@@ -342,6 +356,36 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
             </div>
           </div>
 
+          {/* Pull Request section */}
+          {task?.pr_url && (
+            <div className="p-3 bg-mc-bg rounded-lg border border-mc-border">
+              <h4 className="text-sm font-medium text-mc-text mb-2 flex items-center gap-2">
+                <ExternalLink className="w-4 h-4" />
+                Pull Request
+              </h4>
+              <div className="flex items-center gap-3">
+                <a
+                  href={task.pr_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm text-mc-accent hover:underline break-all"
+                >
+                  {task.pr_url}
+                </a>
+                {task.pr_status && (
+                  <span className={`shrink-0 text-xs px-2 py-1 rounded font-medium ${
+                    task.pr_status === 'open' ? 'bg-blue-500/20 text-blue-400' :
+                    task.pr_status === 'merged' ? 'bg-green-500/20 text-green-400' :
+                    task.pr_status === 'closed' ? 'bg-red-500/20 text-red-400' :
+                    'bg-gray-500/20 text-gray-400'
+                  }`}>
+                    {task.pr_status}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+
           {saveError && (
             <div className="p-3 bg-red-500/10 border border-red-500/30 rounded-md">
               <span className="text-sm text-red-400">{saveError}</span>
@@ -356,6 +400,11 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
               taskId={task.id}
               onSpecLocked={handleSpecLocked}
             />
+          )}
+
+          {/* Convoy Tab */}
+          {activeTab === 'convoy' && task && (
+            <ConvoyTab taskId={task.id} taskTitle={task.title} taskStatus={task.status} />
           )}
 
           {/* Team Tab */}
@@ -381,6 +430,21 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
           {/* Sessions Tab */}
           {activeTab === 'sessions' && task && (
             <SessionsList taskId={task.id} />
+          )}
+
+          {/* Agent Live Tab */}
+          {activeTab === 'agent-live' && task && (
+            <AgentLiveTab taskId={task.id} />
+          )}
+
+          {/* Chat Tab */}
+          {/* Workspace Tab */}
+          {activeTab === 'workspace' && task && (
+            <WorkspaceTab taskId={task.id} taskStatus={task.status} />
+          )}
+
+          {activeTab === 'chat' && task && (
+            <TaskChatTab taskId={task.id} />
           )}
         </div>
 

@@ -321,19 +321,16 @@ export function AgentModal({agent, onClose, workspaceId, onAgentCreated}: AgentM
                 </p>
               </div>
 
-              {/* Session Key Prefix */}
               <div>
-                <label className="block text-sm font-medium mb-1">Session Key Prefix</label>
+                <label className="block text-sm font-medium mb-1">{t('sessionKeyLabel')}</label>
                 <input
                   type="text"
                   value={form.session_key_prefix}
-                  onChange={(e) => setForm({ ...form, session_key_prefix: e.target.value })}
+                  onChange={(e) => setForm({...form, session_key_prefix: e.target.value})}
                   className="w-full min-h-11 bg-mc-bg border border-mc-border rounded px-3 py-2 text-sm focus:outline-none focus:border-mc-accent"
-                  placeholder="agent:main:"
+                  placeholder={t('sessionKeyPlaceholder')}
                 />
-                <p className="text-xs text-mc-text-secondary mt-1">
-                  OpenClaw session routing prefix. Defaults to &quot;agent:main:&quot; if not set.
-                </p>
+                <p className="text-xs text-mc-text-secondary mt-1">{t('sessionKeyHelp')}</p>
               </div>
             </div>
           )}

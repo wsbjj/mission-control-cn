@@ -62,18 +62,6 @@ function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
-function timeAgo(dateStr: string): string {
-  const now = Date.now();
-  const then = new Date(dateStr).getTime();
-  const diffMs = now - then;
-
-  if (diffMs < 60_000) return 'just now';
-  if (diffMs < 3_600_000) return `${Math.floor(diffMs / 60_000)}m ago`;
-  if (diffMs < 86_400_000) return `${Math.floor(diffMs / 3_600_000)}h ago`;
-  if (diffMs < 604_800_000) return `${Math.floor(diffMs / 86_400_000)}d ago`;
-  return new Date(dateStr).toLocaleDateString();
-}
-
 // ---------------------------------------------------------------------------
 // Settings Page Component
 // ---------------------------------------------------------------------------
@@ -81,6 +69,20 @@ function timeAgo(dateStr: string): string {
 export default function SettingsPage() {
   const t = useTranslations('settings');
   const router = useRouter(); // 路由实例，用于在设置页内跳转 / Router instance for navigation inside settings page
+
+  const formatBackupTime = useCallback(
+    (dateStr: string) => {
+      const now = Date.now();
+      const then = new Date(dateStr).getTime();
+      const diffMs = now - then;
+      if (diffMs < 60_000) return t('backupTimeJustNow');
+      if (diffMs < 3_600_000) return t('backupTimeMinutesAgo', {count: Math.floor(diffMs / 60_000)});
+      if (diffMs < 86_400_000) return t('backupTimeHoursAgo', {count: Math.floor(diffMs / 3_600_000)});
+      if (diffMs < 604_800_000) return t('backupTimeDaysAgo', {count: Math.floor(diffMs / 86_400_000)});
+      return new Date(dateStr).toLocaleDateString();
+    },
+    [t]
+  );
   const [config, setConfig] = useState<MissionControlConfig | null>(null); // 当前配置状态 / Current configuration state
   const [isSaving, setIsSaving] = useState(false); // 保存中状态 / Saving state
   const [saveSuccess, setSaveSuccess] = useState(false); // 保存成功提示状态 / Save success indicator
@@ -109,17 +111,17 @@ export default function SettingsPage() {
     setBackupError(null);
     try {
       const res = await fetch('/api/admin/backups');
-      if (!res.ok) throw new Error(`Failed to fetch backups: ${res.statusText}`);
+      if (!res.ok) throw new Error(`${t('backupFetchFailed')}: ${res.statusText}`);
       const data: BackupListResponse = await res.json();
       setBackups(data.backups);
       setBackupTotal(data.total);
       setS3Status(data.s3);
     } catch (err) {
-      setBackupError(err instanceof Error ? err.message : 'Failed to load backups');
+      setBackupError(err instanceof Error ? err.message : t('backupLoadFailed'));
     } finally {
       setIsLoadingBackups(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     fetchBackups();
@@ -175,14 +177,19 @@ export default function SettingsPage() {
       const res = await fetch('/api/admin/backups', { method: 'POST' });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to create backup');
+        throw new Error(data.error || t('backupCreateFailed'));
       }
       const data = await res.json();
-      setBackupSuccess(`Backup created: ${data.backup.filename}${data.s3Uploaded ? ' (uploaded to S3)' : ''}`);
+      setBackupSuccess(
+        t('backupSuccessCreated', {
+          filename: data.backup.filename,
+          suffix: data.s3Uploaded ? t('backupSuccessUploadedSuffix') : '',
+        })
+      );
       setTimeout(() => setBackupSuccess(null), 5000);
       await fetchBackups();
     } catch (err) {
-      setBackupError(err instanceof Error ? err.message : 'Failed to create backup');
+      setBackupError(err instanceof Error ? err.message : t('backupCreateFailed'));
     } finally {
       setIsCreatingBackup(false);
     }
@@ -201,21 +208,21 @@ export default function SettingsPage() {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to restore backup');
+        throw new Error(data.error || t('backupRestoreFailed'));
       }
       const data = await res.json();
       setBackupSuccess(data.message);
       setTimeout(() => setBackupSuccess(null), 8000);
       await fetchBackups();
     } catch (err) {
-      setBackupError(err instanceof Error ? err.message : 'Failed to restore backup');
+      setBackupError(err instanceof Error ? err.message : t('backupRestoreFailed'));
     } finally {
       setIsRestoringBackup(null);
     }
   };
 
   const handleDeleteBackup = async (filename: string) => {
-    if (!confirm(`Delete backup "${filename}"? This cannot be undone.`)) return;
+    if (!confirm(t('backupDeleteConfirm', {filename}))) return;
 
     setIsDeletingBackup(filename);
     setBackupError(null);
@@ -225,13 +232,13 @@ export default function SettingsPage() {
       });
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to delete backup');
+        throw new Error(data.error || t('backupDeleteFailed'));
       }
-      setBackupSuccess(`Deleted: ${filename}`);
+      setBackupSuccess(t('backupSuccessDeleted', {filename}));
       setTimeout(() => setBackupSuccess(null), 3000);
       await fetchBackups();
     } catch (err) {
-      setBackupError(err instanceof Error ? err.message : 'Failed to delete backup');
+      setBackupError(err instanceof Error ? err.message : t('backupDeleteFailed'));
     } finally {
       setIsDeletingBackup(null);
     }
@@ -455,26 +462,23 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <HardDrive className="w-5 h-5 text-mc-accent" />
-              <h2 className="text-xl font-semibold text-mc-text">Database Backups</h2>
+              <h2 className="text-xl font-semibold text-mc-text">{t('backupSectionTitle')}</h2>
             </div>
             <div className="flex items-center gap-3 text-xs text-mc-text-secondary">
               {s3Status.configured ? (
                 <span className="flex items-center gap-1 text-green-400">
-                  <Cloud className="w-3.5 h-3.5" /> S3 connected
+                  <Cloud className="w-3.5 h-3.5" /> {t('backupS3Connected')}
                 </span>
               ) : (
                 <span className="flex items-center gap-1">
-                  <CloudOff className="w-3.5 h-3.5" /> S3 not configured
+                  <CloudOff className="w-3.5 h-3.5" /> {t('backupS3NotConfigured')}
                 </span>
               )}
-              <span>{backupTotal} backup{backupTotal !== 1 ? 's' : ''}</span>
+              <span>{t('backupCount', {count: backupTotal})}</span>
             </div>
           </div>
 
-          <p className="text-sm text-mc-text-secondary mb-4">
-            Create on-demand backups of your SQLite database. Backups include a WAL checkpoint for consistency.
-            Restoring always creates a safety backup of the current database first.
-          </p>
+          <p className="text-sm text-mc-text-secondary mb-4">{t('backupIntro')}</p>
 
           {/* Backup action buttons */}
           <div className="flex items-center gap-3 mb-4">
@@ -488,7 +492,7 @@ export default function SettingsPage() {
               ) : (
                 <Download className="w-4 h-4" />
               )}
-              {isCreatingBackup ? 'Creating...' : 'Create Backup Now'}
+              {isCreatingBackup ? t('backupCreating') : t('backupCreateNow')}
             </button>
             <button
               onClick={fetchBackups}
@@ -496,7 +500,7 @@ export default function SettingsPage() {
               className="px-3 py-2 border border-mc-border rounded hover:bg-mc-bg-tertiary text-mc-text-secondary flex items-center gap-1.5 text-sm"
             >
               <RotateCw className={`w-3.5 h-3.5 ${isLoadingBackups ? 'animate-spin' : ''}`} />
-              Refresh
+              {t('backupRefresh')}
             </button>
           </div>
 
@@ -518,23 +522,23 @@ export default function SettingsPage() {
           {isLoadingBackups && backups.length === 0 ? (
             <div className="py-8 text-center text-mc-text-secondary text-sm">
               <Loader2 className="w-5 h-5 animate-spin mx-auto mb-2" />
-              Loading backups...
+              {t('backupLoadingList')}
             </div>
           ) : backups.length === 0 ? (
             <div className="py-8 text-center text-mc-text-secondary text-sm border border-mc-border rounded bg-mc-bg">
-              No backups yet. Click &quot;Create Backup Now&quot; to create your first backup.
+              {t('backupEmpty')}
             </div>
           ) : (
             <div className="border border-mc-border rounded overflow-hidden">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-mc-bg-tertiary border-b border-mc-border">
-                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium">Backup</th>
-                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-20">Size</th>
-                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-24">Created</th>
-                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-16">Version</th>
-                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-20">Location</th>
-                    <th className="text-right px-4 py-2.5 text-mc-text-secondary font-medium w-32">Actions</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium">{t('backupTableFile')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-20">{t('backupTableSize')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-24">{t('backupTableCreated')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-16">{t('backupTableVersion')}</th>
+                    <th className="text-left px-4 py-2.5 text-mc-text-secondary font-medium w-20">{t('backupTableLocation')}</th>
+                    <th className="text-right px-4 py-2.5 text-mc-text-secondary font-medium w-32">{t('backupTableActions')}</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -549,7 +553,7 @@ export default function SettingsPage() {
                         {formatBytes(backup.size)}
                       </td>
                       <td className="px-4 py-2.5 text-mc-text-secondary text-xs" title={new Date(backup.timestamp).toLocaleString()}>
-                        {timeAgo(backup.timestamp)}
+                        {formatBackupTime(backup.timestamp)}
                       </td>
                       <td className="px-4 py-2.5">
                         <span className="text-xs font-mono px-1.5 py-0.5 bg-mc-bg rounded text-mc-text-secondary">
@@ -559,14 +563,14 @@ export default function SettingsPage() {
                       <td className="px-4 py-2.5 text-xs">
                         {backup.location === 'both' ? (
                           <span className="text-green-400 flex items-center gap-1">
-                            <Cloud className="w-3 h-3" /> Both
+                            <Cloud className="w-3 h-3" /> {t('backupLocationBoth')}
                           </span>
                         ) : backup.location === 's3' ? (
                           <span className="text-blue-400 flex items-center gap-1">
-                            <Cloud className="w-3 h-3" /> S3
+                            <Cloud className="w-3 h-3" /> {t('backupLocationS3')}
                           </span>
                         ) : (
-                          <span className="text-mc-text-secondary">Local</span>
+                          <span className="text-mc-text-secondary">{t('backupLocationLocal')}</span>
                         )}
                       </td>
                       <td className="px-4 py-2.5 text-right">
@@ -575,20 +579,20 @@ export default function SettingsPage() {
                             onClick={() => setConfirmRestore(backup)}
                             disabled={isRestoringBackup !== null}
                             className="px-2.5 py-1 text-xs rounded border border-amber-500/40 text-amber-400 hover:bg-amber-500/10 disabled:opacity-50 flex items-center gap-1"
-                            title="Restore from this backup"
+                            title={t('backupRestoreTitle')}
                           >
                             {isRestoringBackup === backup.filename ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
                             ) : (
                               <Upload className="w-3 h-3" />
                             )}
-                            Restore
+                            {t('backupRestore')}
                           </button>
                           <button
                             onClick={() => handleDeleteBackup(backup.filename)}
                             disabled={isDeletingBackup !== null}
                             className="px-2 py-1 text-xs rounded border border-red-500/40 text-red-400 hover:bg-red-500/10 disabled:opacity-50"
-                            title="Delete this backup"
+                            title={t('backupDeleteTitle')}
                           >
                             {isDeletingBackup === backup.filename ? (
                               <Loader2 className="w-3 h-3 animate-spin" />
@@ -613,50 +617,48 @@ export default function SettingsPage() {
             >
               <span className="flex items-center gap-2">
                 <Shield className="w-4 h-4" />
-                S3-Compatible Storage Configuration
+                {t('backupS3ConfigTitle')}
               </span>
               {showS3Config ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
             </button>
             {showS3Config && (
               <div className="px-4 pb-4 border-t border-mc-border">
                 <p className="text-xs text-mc-text-secondary mt-3 mb-3">
-                  Configure S3-compatible storage (AWS S3, MinIO, Backblaze B2, etc.) for off-site backup storage.
-                  Set these values as environment variables in your <code className="px-1 py-0.5 bg-mc-bg rounded">.env.local</code> file:
+                  {t('backupS3ConfigIntroBefore')}
+                  <code className="px-1 py-0.5 bg-mc-bg rounded">.env.local</code>
+                  {t('backupS3ConfigIntroAfter')}
                 </p>
                 <div className="space-y-2 text-xs font-mono">
                   <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
                     <span className="text-mc-accent w-28">S3_ENDPOINT</span>
                     <span className="text-mc-text-secondary">
-                      {s3Status.endpoint || '(not set)'}
+                      {s3Status.endpoint || t('backupS3NotSet')}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
                     <span className="text-mc-accent w-28">S3_BUCKET</span>
                     <span className="text-mc-text-secondary">
-                      {s3Status.bucket || '(not set)'}
+                      {s3Status.bucket || t('backupS3NotSet')}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
                     <span className="text-mc-accent w-28">S3_ACCESS_KEY</span>
                     <span className="text-mc-text-secondary">
-                      {s3Status.configured ? '••••••••' : '(not set)'}
+                      {s3Status.configured ? '••••••••' : t('backupS3NotSet')}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
                     <span className="text-mc-accent w-28">S3_SECRET_KEY</span>
                     <span className="text-mc-text-secondary">
-                      {s3Status.configured ? '••••••••' : '(not set)'}
+                      {s3Status.configured ? '••••••••' : t('backupS3NotSet')}
                     </span>
                   </div>
                   <div className="flex items-center gap-2 p-2 bg-mc-bg rounded">
                     <span className="text-mc-accent w-28">S3_REGION</span>
-                    <span className="text-mc-text-secondary">us-east-1 (default)</span>
+                    <span className="text-mc-text-secondary">{t('backupS3RegionDefault')}</span>
                   </div>
                 </div>
-                <p className="text-xs text-mc-text-secondary mt-3">
-                  When configured, backups will be automatically uploaded to S3 after creation.
-                  Credentials are stored server-side only — never in the browser.
-                </p>
+                <p className="text-xs text-mc-text-secondary mt-3">{t('backupS3FooterNote')}</p>
               </div>
             )}
           </div>
@@ -670,29 +672,26 @@ export default function SettingsPage() {
                 <div className="p-2 bg-amber-500/10 rounded-full">
                   <AlertTriangle className="w-6 h-6 text-amber-400" />
                 </div>
-                <h3 className="text-lg font-semibold text-mc-text">Confirm Restore</h3>
+                <h3 className="text-lg font-semibold text-mc-text">{t('backupConfirmRestoreTitle')}</h3>
               </div>
 
-              <p className="text-sm text-mc-text-secondary mb-4">
-                This will create a safety backup of your current database, then restore from the selected backup.
-                The application may need to be restarted after restoration.
-              </p>
+              <p className="text-sm text-mc-text-secondary mb-4">{t('backupConfirmRestoreBody')}</p>
 
               <div className="p-3 bg-mc-bg rounded border border-mc-border mb-4 text-xs space-y-1.5">
                 <div className="flex justify-between">
-                  <span className="text-mc-text-secondary">Backup:</span>
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelFile')}</span>
                   <span className="text-mc-text font-mono">{confirmRestore.filename}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-mc-text-secondary">Size:</span>
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelSize')}</span>
                   <span className="text-mc-text">{formatBytes(confirmRestore.size)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-mc-text-secondary">Created:</span>
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelCreated')}</span>
                   <span className="text-mc-text">{new Date(confirmRestore.timestamp).toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-mc-text-secondary">Migration Version:</span>
+                  <span className="text-mc-text-secondary">{t('backupConfirmLabelMigration')}</span>
                   <span className="text-mc-text font-mono">v{confirmRestore.migrationVersion}</span>
                 </div>
               </div>
@@ -702,14 +701,14 @@ export default function SettingsPage() {
                   onClick={() => setConfirmRestore(null)}
                   className="px-4 py-2 text-sm border border-mc-border rounded hover:bg-mc-bg-tertiary text-mc-text-secondary"
                 >
-                  Cancel
+                  {t('backupConfirmCancel')}
                 </button>
                 <button
                   onClick={() => handleRestore(confirmRestore)}
                   className="px-4 py-2 text-sm bg-amber-500 text-black rounded hover:bg-amber-400 font-medium flex items-center gap-2"
                 >
                   <Upload className="w-4 h-4" />
-                  Restore Database
+                  {t('backupConfirmRestoreButton')}
                 </button>
               </div>
             </div>

@@ -748,7 +748,7 @@ CREATE INDEX IF NOT EXISTS idx_task_notes_task ON task_notes(task_id, created_at
 CREATE INDEX IF NOT EXISTS idx_task_notes_pending ON task_notes(task_id, status) WHERE status = 'pending';
 CREATE INDEX IF NOT EXISTS idx_ppv_product ON product_program_variants(product_id);
 CREATE INDEX IF NOT EXISTS idx_ab_tests_product ON product_ab_tests(product_id, status);
-CREATE INDEX IF NOT EXISTS idx_ideas_variant ON ideas(variant_id);
+-- idx_ideas_variant: created in migration 027 after variant_id column exists on legacy DBs
 CREATE INDEX IF NOT EXISTS idx_ideation_cycles_product ON ideation_cycles(product_id, started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_autopilot_activity_product ON autopilot_activity_log(product_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_autopilot_activity_cycle ON autopilot_activity_log(cycle_id, created_at);

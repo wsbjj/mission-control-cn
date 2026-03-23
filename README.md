@@ -28,7 +28,7 @@ I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.clo
   <a href="https://missioncontrol.ghray.com"><strong>🎮 Live Demo</strong></a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-docker">Docker</a> •
-  <a href="#-whats-new-in-v231">What's New</a> •
+  <a href="#-whats-new-in-v240">What's New</a> •
   <a href="#-features">Features</a> •
   <a href="#-how-it-works">How It Works</a> •
   <a href="#-configuration">Configuration</a> •
@@ -41,12 +41,24 @@ I highly recommend getting Hetzner VPS to run this. <a href="https://hetzner.clo
 
 ---
 
-## 🚀 What's New in v2.3.1
+## 🚀 What's New in v2.4.0
 
-### Bug Fix
-- **Schema syntax error** — Fixed missing `);` in schema that caused startup errors on fresh databases. Applied pending migration columns for similarity detection, A/B testing, and batch review.
+### Agent Skill Creation Loop
+- **Agents learn reusable procedures** — When a task completes, the system extracts structured skills (build steps, deploy scripts, config patterns) from what the agent did. Skills are stored as executable playbooks with commands, prerequisites, and verification.
+- **Skills improve with use** — Agents report whether a skill worked. Bayesian confidence scoring promotes proven skills and deprecates unreliable ones. No manual curation needed.
+- **Injected at dispatch** — Matched skills are the first thing an agent sees, not a footnote. Agent #1 figures out the build process, Agent #2 gets it as primary instructions.
 
-### v2.3.0 Highlights
+### Previous Releases
+
+<details>
+<summary>v2.3.x — Idea Dedup, Chat, Undo, A/B Testing, Rollback</summary>
+
+- Idea similarity detection & auto-deduplication
+- Floating operator chat widget with @mentions
+- 10-second swipe undo + batch review mode
+- Product program A/B testing
+- Automated rollback pipeline via GitHub webhooks
+</details>
 
 ### Idea Similarity Detection
 - **Auto-deduplication** — New ideas are compared against existing ones. Ideas >90% similar to rejected ideas are auto-suppressed. Similar ideas get a warning badge. Full audit trail.

@@ -848,7 +848,10 @@ export type SSEEventType =
   | 'health_score_updated'
   | 'ab_test_started'
   | 'ab_test_concluded'
-  | 'ab_test_cancelled';
+  | 'ab_test_cancelled'
+  | 'skill_created'
+  | 'skill_promoted'
+  | 'skills_extracted';
 
 export interface SSEEvent {
   type: SSEEventType;

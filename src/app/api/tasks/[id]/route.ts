@@ -445,6 +445,15 @@ export async function PATCH(
       }
     }
 
+    // Extract skills from completed task (non-blocking, async)
+    if (nextStatus === 'done' && existing.product_id) {
+      import('@/lib/skill-extraction').then(({ extractSkillsFromTask }) =>
+        extractSkillsFromTask(id).catch(err =>
+          console.error('[Skills] extraction failed:', err)
+        )
+      );
+    }
+
     // Drain the review queue when a task reaches 'done' (frees the verification slot)
     if (nextStatus === 'done') {
       drainQueue(id, existing.workspace_id).catch(err =>

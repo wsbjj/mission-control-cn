@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.0] - 2026-03-22
+
+### Added
+- **Agent Skill Creation Loop** — Closed-loop skill system where agents autonomously create, consume, and improve structured playbooks scoped to each product. Based on the Karpathy AutoResearch pattern.
+  - **Skill Extraction** — When a task completes, an LLM analyzes the task's activities and deliverables to extract 0-3 reusable procedures. Skills are stored as structured steps with commands, prerequisites, and verification methods.
+  - **Skill Matching & Dispatch Injection** — During dispatch, matched skills are injected as primary instructions (before knowledge/footnotes). Matching uses keyword overlap, role filtering, and title similarity — not regex.
+  - **Skill Reporting** — Agents report whether they used a skill and whether it succeeded. Reports update a Bayesian confidence score (prior weight of 2 prevents cold-start inflation).
+  - **Inline Promotion/Deprecation** — Draft skills auto-promote to active after 2 successes with confidence >= 0.6. Skills with 3+ uses and confidence < 0.3 auto-deprecate.
+  - **Skill Versioning** — New skill versions link to their predecessor via `supersedes_skill_id`. Matching deduplicates superseded skills.
+- **Skills API** — `GET/POST /api/products/[id]/skills`, `GET/PATCH /api/products/[id]/skills/[skillId]`, `POST /api/products/[id]/skills/[skillId]/report`
+- **Migration 028** — `product_skills` and `skill_reports` tables with indexes
+
+---
+
 ## [2.3.1] - 2026-03-22
 
 ### Fixed

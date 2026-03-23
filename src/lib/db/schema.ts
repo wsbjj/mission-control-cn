@@ -706,6 +706,40 @@ CREATE TABLE IF NOT EXISTS product_ab_tests (
   concluded_at TEXT
 );
 
+-- Product skills: reusable agent playbooks
+CREATE TABLE IF NOT EXISTS product_skills (
+  id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+  skill_type TEXT NOT NULL CHECK (skill_type IN ('build', 'deploy', 'test', 'fix', 'config', 'pattern')),
+  title TEXT NOT NULL,
+  trigger_keywords TEXT,
+  prerequisites TEXT,
+  steps TEXT NOT NULL,
+  verification TEXT,
+  confidence REAL DEFAULT 0.5,
+  times_used INTEGER DEFAULT 0,
+  times_succeeded INTEGER DEFAULT 0,
+  last_used_at TEXT,
+  created_by_task_id TEXT REFERENCES tasks(id),
+  created_by_agent_id TEXT REFERENCES agents(id),
+  supersedes_skill_id TEXT REFERENCES product_skills(id),
+  status TEXT DEFAULT 'draft' CHECK (status IN ('active', 'deprecated', 'draft')),
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
+-- Skill usage reports from agents
+CREATE TABLE IF NOT EXISTS skill_reports (
+  id TEXT PRIMARY KEY,
+  skill_id TEXT NOT NULL REFERENCES product_skills(id) ON DELETE CASCADE,
+  task_id TEXT NOT NULL REFERENCES tasks(id),
+  used INTEGER NOT NULL DEFAULT 1,
+  succeeded INTEGER NOT NULL DEFAULT 0,
+  deviation TEXT,
+  suggested_update TEXT,
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
 -- Indexes for performance
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned ON tasks(assigned_agent_id);
@@ -765,4 +799,7 @@ CREATE INDEX IF NOT EXISTS idx_idea_embeddings_product ON idea_embeddings(produc
 CREATE INDEX IF NOT EXISTS idx_idea_embeddings_idea ON idea_embeddings(idea_id);
 CREATE INDEX IF NOT EXISTS idx_idea_suppressions_product ON idea_suppressions(product_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_user_task_reads_user_task ON user_task_reads(user_id, task_id);
+CREATE INDEX IF NOT EXISTS idx_product_skills_product ON product_skills(product_id, skill_type, status);
+CREATE INDEX IF NOT EXISTS idx_product_skills_confidence ON product_skills(confidence DESC);
+CREATE INDEX IF NOT EXISTS idx_skill_reports_skill ON skill_reports(skill_id);
 `;

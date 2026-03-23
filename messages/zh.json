@@ -342,6 +342,7 @@
     "planningCancel": "取消",
     "planningCanceling": "正在取消...",
     "planningCancelConfirm": "确定要取消规划吗？将重置当前规划状态。",
+    "planningAllowNewAgentsLabel": "是否允许生成新的智能体",
     "planningPleaseSpecify": "请填写...",
     "planningOrchestratorWarning": "编排器仍在为你处理规划，请稍候。你可以放心刷新页面，你在规划模式中的进度不会丢失。",
     "planningOrchestratorTimeout": "编排器在长时间等待后已超时。请刷新页面并重新提交你刚才的回答。",

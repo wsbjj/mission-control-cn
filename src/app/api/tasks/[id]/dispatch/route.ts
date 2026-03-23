@@ -12,6 +12,7 @@ import { buildCheckpointContext } from '@/lib/checkpoint';
 import { formatMailForDispatch } from '@/lib/mailbox';
 import { getPendingNotesForDispatch } from '@/lib/task-notes';
 import { createTaskWorkspace, determineIsolationStrategy } from '@/lib/workspace-isolation';
+import { resolveSessionPrefix } from '@/lib/openclaw/session-prefix';
 import type { Task, Agent, Product, OpenClawSession, WorkflowStage, TaskImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -35,10 +36,11 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     });
 
     // Get task with agent info
-    const task = queryOne<Task & { assigned_agent_name?: string; workspace_id: string }>(
-      `SELECT t.*, a.name as assigned_agent_name, a.is_master
+    const task = queryOne<Task & { assigned_agent_name?: string; workspace_id: string; workspace_slug?: string }>(
+      `SELECT t.*, a.name as assigned_agent_name, a.is_master, w.slug as workspace_slug
        FROM tasks t
        LEFT JOIN agents a ON t.assigned_agent_id = a.id
+       LEFT JOIN workspaces w ON w.id = t.workspace_id
        WHERE t.id = ?`,
       [id]
     );
@@ -72,12 +74,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     // Get agent details
     const agent = queryOne<Agent>(
-      'SELECT * FROM agents WHERE id = ?',
-      [assignedAgentId]
+      'SELECT * FROM agents WHERE id = ? AND workspace_id = ?',
+      [assignedAgentId, task.workspace_id]
     );
 
     if (!agent) {
-      return NextResponse.json({ error: 'Assigned agent not found' }, { status: 404 });
+      return NextResponse.json({ error: 'Assigned agent not found in workspace' }, { status: 404 });
     }
 
     // Check if dispatching to the master agent while there are other orchestrators available
@@ -158,6 +160,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json(
         { error: 'Failed to create agent session' },
         { status: 500 }
+      );
+    }
+
+    if (session.task_id && session.task_id !== task.id) {
+      return NextResponse.json(
+        { error: 'Session scope mismatch for this task' },
+        { status: 409 }
       );
     }
 
@@ -435,9 +444,12 @@ If you need help or clarification, ask the orchestrator.`;
 
     // Send message to agent's session using chat.send
     try {
-      // Use sessionKey for routing to the agent's session
-      // Format: {prefix}{openclaw_session_id} where prefix defaults to 'agent:main:'
-      const prefix = agent.session_key_prefix || 'agent:main:';
+      // Use sessionKey for routing to the agent's session.
+      const prefix = resolveSessionPrefix({
+        inheritedPrefix: session.inherited_session_key_prefix,
+        agentPrefix: agent.session_key_prefix,
+        workspaceSlug: task.workspace_slug,
+      });
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
       await client.call('chat.send', {
         sessionKey,

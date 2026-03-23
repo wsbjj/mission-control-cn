@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne, run } from '@/lib/db';
 import { extractJSON } from '@/lib/planning-utils';
+import { buildWorkspaceSessionPrefix, normalizeSessionPrefix } from '@/lib/openclaw/session-prefix';
 import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
 import { v4 as uuidv4 } from 'uuid';
@@ -30,7 +31,13 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       planning_complete?: number;
       planning_session_key?: string;
       workspace_id: string;
-    }>('SELECT * FROM tasks WHERE id = ?', [taskId]);
+      workspace_slug?: string;
+    }>(`
+      SELECT t.*, w.slug as workspace_slug
+      FROM tasks t
+      LEFT JOIN workspaces w ON t.workspace_id = w.id
+      WHERE t.id = ?
+    `, [taskId]);
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
@@ -41,6 +48,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const messages = task.planning_messages ? JSON.parse(task.planning_messages) : [];
+    const sessionAllowsNewAgents = messages.some((m: any) => m?.allow_new_agents === false) ? false : true;
     
     // Scan messages from the end looking for the completion JSON
     let completionParsed: any = null;
@@ -78,7 +86,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Found completion JSON — create agents, save spec, dispatch
     console.log(`[Force Complete] Found completion JSON for task ${taskId} — processing`);
 
-    const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false';
+    const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false' && sessionAllowsNewAgents;
     let firstAgentId: string | null = null;
 
     if (allowDynamicAgents && completionParsed.agents?.length > 0) {
@@ -86,7 +94,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         `SELECT session_key_prefix FROM agents WHERE is_master = 1 AND workspace_id = ? ORDER BY created_at ASC LIMIT 1`,
         [task.workspace_id]
       );
-      const sessionKeyPrefix = masterAgent?.session_key_prefix || 'agent:main:';
+      const sessionKeyPrefix =
+        normalizeSessionPrefix(masterAgent?.session_key_prefix) ||
+        buildWorkspaceSessionPrefix(task.workspace_slug);
 
       for (const agent of completionParsed.agents) {
         const agentId = crypto.randomUUID();

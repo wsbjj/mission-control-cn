@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { bootstrapCoreAgents, cloneWorkflowTemplates } from '@/lib/bootstrap-agents';
+import { ensureOpenClawIsolationColumns } from '@/lib/db/runtime-openclaw-columns';
+import {
+  bestEffortDisableWorkspaceAgents,
+  createWorkspaceRootAgent,
+  ensureWorkspaceRoleAgents
+} from '@/lib/openclaw/workspace-root-agent';
 import type { Workspace, WorkspaceStats, TaskStatus } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -89,6 +95,7 @@ export async function POST(request: NextRequest) {
     }
 
     const db = getDb();
+    ensureOpenClawIsolationColumns(db);
     const id = crypto.randomUUID();
     const slug = generateSlug(name);
     
@@ -103,10 +110,64 @@ export async function POST(request: NextRequest) {
       VALUES (?, ?, ?, ?, ?)
     `).run(id, name.trim(), slug, description || null, icon || '📁');
 
+    try {
+      const openclawRoot = await createWorkspaceRootAgent({
+        workspaceId: id,
+        workspaceSlug: slug,
+      });
+      db.prepare(`
+        UPDATE workspaces
+        SET openclaw_root_agent_id = ?, openclaw_root_agent_status = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(openclawRoot.agentId, openclawRoot.status, id);
+    } catch (openclawError) {
+      // Keep workspace creation atomic from user's perspective.
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      throw new Error(`Failed to create OpenClaw workspace root agent: ${(openclawError as Error).message}`);
+    }
+
     // Clone workflow templates and bootstrap core agents for the new workspace
     cloneWorkflowTemplates(db, id);
     bootstrapCoreAgents(id);
 
+    let provisionedRoles: string[] = [];
+    try {
+      const workspaceAgents = db.prepare(`
+        SELECT id, role, name, model
+        FROM agents
+        WHERE workspace_id = ? AND role IN ('builder', 'tester', 'reviewer', 'learner')
+      `).all(id) as Array<{ id: string; role: string; name: string; model?: string | null }>;
+      provisionedRoles = workspaceAgents.map((a) => a.role);
+
+      const roleMapping = await ensureWorkspaceRoleAgents({
+        workspaceId: id,
+        workspaceSlug: slug,
+        roles: workspaceAgents.map((a) => ({ role: a.role, name: a.name, model: a.model || null })),
+      });
+
+      const updateAgent = db.prepare(`
+        UPDATE agents
+        -- 保持 gateway_agent_id 和 session_key_prefix 用于路由隔离，但 UI 侧不把它们标成 gateway
+        --（避免用户误以为都在 main 池跑，同时满足你选 A 的展示诉求）
+        SET gateway_agent_id = ?, session_key_prefix = ?, source = 'local', updated_at = datetime('now')
+        WHERE id = ?
+      `);
+      for (const agent of workspaceAgents) {
+        const map = roleMapping.get(agent.role);
+        if (!map) continue;
+        updateAgent.run(map.gatewayAgentId, map.sessionKeyPrefix, agent.id);
+      }
+    } catch (provisionError) {
+      await bestEffortDisableWorkspaceAgents({
+        workspaceId: id,
+        workspaceSlug: slug,
+        roles: provisionedRoles,
+      });
+      db.prepare('DELETE FROM agents WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM workflow_templates WHERE workspace_id = ?').run(id);
+      db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);
+      throw new Error(`Failed to provision workspace role agents: ${(provisionError as Error).message}`);
+    }
     const workspace = db.prepare('SELECT * FROM workspaces WHERE id = ?').get(id);
     return NextResponse.json(workspace, { status: 201 });
   } catch (error) {

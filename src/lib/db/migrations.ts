@@ -1595,6 +1595,37 @@ const migrations: Migration[] = [
 
       console.log('[Migration 028] product_skills and skill_reports tables created');
     }
+  },
+  {
+    id: '029',
+    name: 'add_openclaw_workspace_mapping_and_session_inheritance',
+    up: (db) => {
+      console.log('[Migration 029] Adding OpenClaw workspace mapping and session inheritance fields...');
+
+      const workspaceInfo = db.prepare("PRAGMA table_info(workspaces)").all() as { name: string }[];
+      if (!workspaceInfo.some(col => col.name === 'openclaw_root_agent_id')) {
+        db.exec(`ALTER TABLE workspaces ADD COLUMN openclaw_root_agent_id TEXT`);
+        console.log('[Migration 029] Added openclaw_root_agent_id to workspaces');
+      }
+      if (!workspaceInfo.some(col => col.name === 'openclaw_root_agent_status')) {
+        db.exec(`ALTER TABLE workspaces ADD COLUMN openclaw_root_agent_status TEXT DEFAULT 'pending'`);
+        console.log('[Migration 029] Added openclaw_root_agent_status to workspaces');
+      }
+
+      const sessionInfo = db.prepare("PRAGMA table_info(openclaw_sessions)").all() as { name: string }[];
+      if (!sessionInfo.some(col => col.name === 'parent_openclaw_agent_id')) {
+        db.exec(`ALTER TABLE openclaw_sessions ADD COLUMN parent_openclaw_agent_id TEXT`);
+        console.log('[Migration 029] Added parent_openclaw_agent_id to openclaw_sessions');
+      }
+      if (!sessionInfo.some(col => col.name === 'inherited_session_key_prefix')) {
+        db.exec(`ALTER TABLE openclaw_sessions ADD COLUMN inherited_session_key_prefix TEXT`);
+        console.log('[Migration 029] Added inherited_session_key_prefix to openclaw_sessions');
+      }
+      if (!sessionInfo.some(col => col.name === 'inherited_model')) {
+        db.exec(`ALTER TABLE openclaw_sessions ADD COLUMN inherited_model TEXT`);
+        console.log('[Migration 029] Added inherited_model to openclaw_sessions');
+      }
+    }
   }
 ];
 

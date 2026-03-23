@@ -110,6 +110,13 @@ export function isActiveStatus(status: string): boolean {
 }
 
 export function pickDynamicAgent(taskId: string, stageRole?: string | null): { id: string; name: string } | null {
+  const taskRow = queryOne<{ workspace_id: string }>(
+    'SELECT workspace_id FROM tasks WHERE id = ?',
+    [taskId]
+  );
+  if (!taskRow) return null;
+  const workspaceId = taskRow.workspace_id;
+
   const planningAgentsTask = queryOne<{ planning_agents?: string }>('SELECT planning_agents FROM tasks WHERE id = ?', [taskId]);
   const plannerCandidates: string[] = [];
   if (planningAgentsTask?.planning_agents) {
@@ -124,8 +131,8 @@ export function pickDynamicAgent(taskId: string, stageRole?: string | null): { i
   const checked = new Set<string>();
   for (const candidateId of plannerCandidates) {
     const candidate = queryOne<{ id: string; name: string; is_master: number; status: string }>(
-      'SELECT id, name, is_master, status FROM agents WHERE id = ? LIMIT 1',
-      [candidateId]
+      'SELECT id, name, is_master, status FROM agents WHERE id = ? AND workspace_id = ? LIMIT 1',
+      [candidateId, workspaceId]
     );
     if (!candidate || candidate.status === 'offline') continue;
     checked.add(candidate.id);
@@ -134,14 +141,23 @@ export function pickDynamicAgent(taskId: string, stageRole?: string | null): { i
 
   if (stageRole) {
     const byRole = queryOne<{ id: string; name: string }>(
-      `SELECT id, name FROM agents WHERE role = ? AND status != 'offline' ORDER BY status = 'standby' DESC, updated_at DESC LIMIT 1`,
-      [stageRole]
+      `SELECT id, name
+       FROM agents
+       WHERE workspace_id = ? AND role = ? AND status != 'offline'
+       ORDER BY status = 'standby' DESC, updated_at DESC
+       LIMIT 1`,
+      [workspaceId, stageRole]
     );
     if (byRole) return byRole;
   }
 
   const fallback = queryOne<{ id: string; name: string }>(
-    `SELECT id, name FROM agents WHERE status != 'offline' ORDER BY is_master ASC, updated_at DESC LIMIT 1`
+    `SELECT id, name
+     FROM agents
+     WHERE workspace_id = ? AND status != 'offline'
+     ORDER BY is_master ASC, updated_at DESC
+     LIMIT 1`,
+    [workspaceId]
   );
   if (fallback && !checked.has(fallback.id)) return fallback;
 

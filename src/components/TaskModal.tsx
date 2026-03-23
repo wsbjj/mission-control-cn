@@ -78,10 +78,15 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
       const method = task ? 'PATCH' : 'POST';
       const resolvedStatus = resolveStatus();
 
+      // Send only known PATCH fields — avoid `null`/extras that Zod rejects (e.g. description: null).
+      const trimmedAgentId = (form.assigned_agent_id ?? '').trim();
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(trimmedAgentId);
       const payload = {
-        ...form,
+        title: form.title,
+        description: form.description ?? '',
+        priority: form.priority,
         status: resolvedStatus,
-        assigned_agent_id: form.assigned_agent_id || null,
+        assigned_agent_id: trimmedAgentId === '' || !isUuid ? null : trimmedAgentId,
         due_date: form.due_date || null,
         workspace_id: workspaceId || task?.workspace_id || 'default',
       };
@@ -94,7 +99,13 @@ export function TaskModal({task, onClose, workspaceId}: TaskModalProps) {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({ error: 'Unknown error' }));
-        setSaveError(errData.error || `Save failed (${res.status})`);
+        const firstDetail =
+          Array.isArray(errData.details) && errData.details[0]
+            ? `${errData.details[0].path?.join?.('.') || 'field'}: ${errData.details[0].message || ''}`
+            : '';
+        setSaveError(
+          [errData.error || `Save failed (${res.status})`, firstDetail].filter(Boolean).join(' — ')
+        );
         return;
       }
 

@@ -18,6 +18,7 @@ interface PlanningMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  allow_new_agents?: boolean;
 }
 
 interface PlanningState {
@@ -66,6 +67,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
   const [stalePlanning, setStalePlanning] = useState(false);
   const [forceCompleting, setForceCompleting] = useState(false);
   const [noNewMessageCount, setNoNewMessageCount] = useState(0);
+  const [allowNewAgents, setAllowNewAgents] = useState(true);
 
   // Refs to track polling state without triggering re-renders
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -249,7 +251,11 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
     setError(null);
 
     try {
-      const res = await fetch(`/api/tasks/${taskId}/planning`, { method: 'POST' });
+      const res = await fetch(`/api/tasks/${taskId}/planning`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ allow_new_agents: allowNewAgents }),
+      });
       const data = await res.json();
 
       if (res.ok) {
@@ -584,7 +590,17 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
             {error}
           </div>
         )}
-        
+
+        <label className="flex items-center gap-2 text-sm text-mc-text-secondary">
+          <input
+            type="checkbox"
+            checked={allowNewAgents}
+            onChange={(e) => setAllowNewAgents(e.target.checked)}
+            className="rounded border-mc-border"
+          />
+          {t('planningAllowNewAgentsLabel')}
+        </label>
+
         <button
           onClick={startPlanning}
           disabled={starting}

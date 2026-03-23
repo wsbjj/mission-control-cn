@@ -207,17 +207,19 @@ export function bootstrapCoreAgentsRaw(
 
   const insert = db.prepare(`
     INSERT INTO agents (id, name, role, description, avatar_emoji, status, is_master, workspace_id, soul_md, user_md, agents_md, source, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, 'standby', 0, ?, ?, ?, ?, 'local', ?, ?)
+    VALUES (?, ?, ?, ?, ?, 'standby', ?, ?, ?, ?, ?, 'local', ?, ?)
   `);
 
   for (const agent of CORE_AGENTS) {
     const id = crypto.randomUUID();
+    const isMaster = agent.role === 'builder' ? 1 : 0;
     insert.run(
       id,
       agent.name,
       agent.role,
       `${agent.name} — core team member`,
       agent.emoji,
+      isMaster,
       workspaceId,
       agent.soulMd,
       userMd,

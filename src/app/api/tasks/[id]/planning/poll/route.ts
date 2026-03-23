@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { queryOne, run, getDb, queryAll } from '@/lib/db';
 import { getOpenClawClient } from '@/lib/openclaw/client';
+import { buildWorkspaceSessionPrefix, normalizeSessionPrefix } from '@/lib/openclaw/session-prefix';
 import { broadcast } from '@/lib/events';
 import { getMissionControlUrl } from '@/lib/config';
 import { extractJSON, getMessagesFromOpenClaw } from '@/lib/planning-utils';
@@ -24,21 +25,29 @@ async function handlePlanningCompletion(taskId: string, parsed: any, messages: a
   const db = getDb();
   let dispatchError: string | null = null;
   let firstAgentId: string | null = null;
+  const sessionAllowsNewAgents = messages.some((m: any) => m?.allow_new_agents === false) ? false : true;
 
   // Transaction 1: Save planning data, create agents, AND assign agent to task
   // (Assigning before dispatch fixes the chicken-and-egg bug where dispatch
   // checks assigned_agent_id and fails because it wasn't set yet)
   const transaction = db.transaction(() => {
-    const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false';
+    const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false' && sessionAllowsNewAgents;
 
     if (allowDynamicAgents && parsed.agents && parsed.agents.length > 0) {
       // Get the master agent's session_key_prefix to use for new agents
-      const task = db.prepare('SELECT workspace_id FROM tasks WHERE id = ?').get(taskId) as { workspace_id: string } | undefined;
+      const task = db.prepare(`
+        SELECT t.workspace_id, w.slug as workspace_slug
+        FROM tasks t
+        LEFT JOIN workspaces w ON t.workspace_id = w.id
+        WHERE t.id = ?
+      `).get(taskId) as { workspace_id: string; workspace_slug?: string } | undefined;
       const masterAgent = task ? db.prepare(
         `SELECT session_key_prefix FROM agents WHERE is_master = 1 AND workspace_id = ? ORDER BY created_at ASC LIMIT 1`
       ).get(task.workspace_id) as { session_key_prefix?: string } | undefined : undefined;
-      
-      const sessionKeyPrefix = masterAgent?.session_key_prefix || 'agent:main:';
+
+      const sessionKeyPrefix =
+        normalizeSessionPrefix(masterAgent?.session_key_prefix) ||
+        buildWorkspaceSessionPrefix(task?.workspace_slug);
 
       const insertAgent = db.prepare(`
         INSERT INTO agents (id, workspace_id, name, role, description, avatar_emoji, status, soul_md, session_key_prefix, created_at, updated_at)

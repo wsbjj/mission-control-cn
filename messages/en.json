@@ -342,6 +342,7 @@
     "planningCancel": "Cancel",
     "planningCanceling": "Canceling...",
     "planningCancelConfirm": "Are you sure you want to cancel planning? This will reset the planning state.",
+    "planningAllowNewAgentsLabel": "Allow creating new agents",
     "planningPleaseSpecify": "Please specify...",
     "planningOrchestratorWarning": "The orchestrator is still processing. You can refresh safely — you will not lose your place in Planning Mode.",
     "planningOrchestratorTimeout": "The orchestrator timed out after an extended wait. Please refresh the page and retry your last answer.",

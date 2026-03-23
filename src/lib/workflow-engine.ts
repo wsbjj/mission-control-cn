@@ -138,14 +138,14 @@ export async function handleStageTransition(
   let roleAgent = getAgentForRole(taskId, targetStage.role);
   if (!roleAgent) {
     // Fall back to the task's directly assigned agent
-    const task = queryOne<{ assigned_agent_id: string | null }>(
-      'SELECT assigned_agent_id FROM tasks WHERE id = ?',
+    const task = queryOne<{ assigned_agent_id: string | null; workspace_id: string }>(
+      'SELECT assigned_agent_id, workspace_id FROM tasks WHERE id = ?',
       [taskId]
     );
     if (task?.assigned_agent_id) {
       const agent = queryOne<{ id: string; name: string }>(
-        'SELECT id, name FROM agents WHERE id = ?',
-        [task.assigned_agent_id]
+        'SELECT id, name FROM agents WHERE id = ? AND workspace_id = ?',
+        [task.assigned_agent_id, task.workspace_id]
       );
       if (agent) {
         console.log(`[Workflow] No task_role for "${targetStage.role}", using assigned agent "${agent.name}"`);

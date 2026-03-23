@@ -69,22 +69,29 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
   // Active pipeline states where manual moves are dangerous
   const ACTIVE_PIPELINE_STATES: TaskStatus[] = ['assigned', 'in_progress', 'convoy_active', 'testing', 'review', 'verification'];
 
+  const pipelineStateDescription = (status: TaskStatus): string => {
+    switch (status) {
+      case 'assigned':
+        return t('pipelineStateAssigned');
+      case 'in_progress':
+        return t('pipelineStateInProgress');
+      case 'convoy_active':
+        return t('pipelineStateConvoyActive');
+      case 'testing':
+        return t('pipelineStateTesting');
+      case 'review':
+        return t('pipelineStateReview');
+      case 'verification':
+        return t('pipelineStateVerification');
+      default:
+        return status;
+    }
+  };
+
   const getPipelineWarning = (task: Task, targetStatus: TaskStatus): string | null => {
     if (!ACTIVE_PIPELINE_STATES.includes(task.status)) return null;
-    // Moving to the same status or to done is less dangerous
     if (task.status === targetStatus) return null;
-
-    const stateLabels: Record<string, string> = {
-      assigned: 'queued for dispatch',
-      in_progress: 'being built by an agent',
-      convoy_active: 'running as a convoy',
-      testing: 'being tested by an agent',
-      review: 'in the review queue',
-      verification: 'being verified by an agent',
-    };
-
-    const current = stateLabels[task.status] || task.status;
-    return `This task is currently ${current}. Moving it manually will interrupt the automation pipeline and may cause the assigned agent to lose context. Are you sure you want to override?`;
+    return t('pipelineWarningBody', {state: pipelineStateDescription(task.status)});
   };
 
   const attemptMove = async (task: Task, targetStatus: TaskStatus) => {
@@ -325,14 +332,14 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                 <AlertTriangle className="w-5 h-5 text-amber-400" />
               </div>
               <div>
-                <h3 className="font-semibold text-mc-text">Override automation?</h3>
+                <h3 className="font-semibold text-mc-text">{t('pipelineOverrideTitle')}</h3>
                 <p className="text-sm text-mc-text-secondary mt-1">
                   {getPipelineWarning(pendingMove.task, pendingMove.targetStatus)}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2 p-3 bg-mc-bg rounded-lg border border-mc-border text-sm">
-              <span className="text-mc-text-secondary">Moving:</span>
+              <span className="text-mc-text-secondary">{t('pipelineMovingLabel')}</span>
               <span className="font-medium text-mc-text truncate">{pendingMove.task.title}</span>
               <span className="text-mc-text-secondary mx-1">&rarr;</span>
               <span className="font-medium text-mc-text">{getColumnLabel(pendingMove.targetStatus)}</span>
@@ -342,13 +349,13 @@ export function MissionQueue({workspaceId, mobileMode = false, isPortrait = true
                 onClick={() => setPendingMove(null)}
                 className="min-h-11 px-4 rounded-lg text-sm text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary"
               >
-                Cancel
+                {t('pipelineCancel')}
               </button>
               <button
                 onClick={confirmPendingMove}
                 className="min-h-11 px-4 rounded-lg text-sm font-medium bg-amber-500 text-black hover:bg-amber-400"
               >
-                Override &amp; Move
+                {t('pipelineOverrideMove')}
               </button>
             </div>
           </div>

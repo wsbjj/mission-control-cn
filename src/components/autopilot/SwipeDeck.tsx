@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import Link from 'next/link';
+import {useState, useEffect, useCallback} from 'react';
+import {useTranslations} from 'next-intl';
+import {Link} from '@/i18n/navigation';
 import { ListChecks } from 'lucide-react';
 import { IdeaCard } from './IdeaCard';
 import { UndoToast } from './UndoToast';
@@ -20,7 +21,8 @@ interface LastSwipe {
   index: number; // position in deck when swiped
 }
 
-export function SwipeDeck({ productId }: SwipeDeckProps) {
+export function SwipeDeck({productId}: SwipeDeckProps) {
+  const t = useTranslations('autopilotBatchReview');
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -225,7 +227,7 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
       {/* Progress + Review All */}
       <div className="flex items-center gap-4">
         <div className="text-sm text-mc-text-secondary">
-          {currentIndex + 1} / {ideas.length} ideas
+          {t('deckProgress', {current: currentIndex + 1, total: ideas.length})}
         </div>
         {showReviewAll && (
           <Link
@@ -233,7 +235,7 @@ export function SwipeDeck({ productId }: SwipeDeckProps) {
             className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium bg-mc-accent/20 text-mc-accent rounded-lg hover:bg-mc-accent/30 transition-colors"
           >
             <ListChecks className="w-3.5 h-3.5" />
-            Review All ({pendingCount})
+            {t('reviewAllWithCount', {count: pendingCount})}
           </Link>
         )}
       </div>

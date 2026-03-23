@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
-import { ArrowUpDown, CheckSquare, Square, Loader, Send } from 'lucide-react';
-import { BatchReviewRow } from './BatchReviewRow';
-import type { Idea, SwipeAction } from '@/lib/types';
+import {useState, useCallback, useMemo} from 'react';
+import {useTranslations} from 'next-intl';
+import {ArrowUpDown, CheckSquare, Square, Loader, Send} from 'lucide-react';
+import {BatchReviewRow} from './BatchReviewRow';
+import type {Idea, SwipeAction} from '@/lib/types';
 
 interface BatchReviewListProps {
   productId: string;
@@ -14,12 +15,14 @@ interface BatchReviewListProps {
 type SortField = 'impact_score' | 'feasibility_score' | 'complexity' | 'category' | 'created_at';
 type SortDir = 'asc' | 'desc';
 
-const SORT_OPTIONS: { value: SortField; label: string }[] = [
-  { value: 'impact_score', label: 'Impact Score' },
-  { value: 'feasibility_score', label: 'Feasibility' },
-  { value: 'complexity', label: 'Complexity' },
-  { value: 'category', label: 'Category' },
-  { value: 'created_at', label: 'Date Added' },
+type SortLabelKey = 'sortImpact' | 'sortFeasibility' | 'sortComplexity' | 'sortCategory' | 'sortDate';
+
+const SORT_OPTIONS: {value: SortField; labelKey: SortLabelKey}[] = [
+  {value: 'impact_score', labelKey: 'sortImpact'},
+  {value: 'feasibility_score', labelKey: 'sortFeasibility'},
+  {value: 'complexity', labelKey: 'sortComplexity'},
+  {value: 'category', labelKey: 'sortCategory'},
+  {value: 'created_at', labelKey: 'sortDate'},
 ];
 
 const complexityOrder: Record<string, number> = { S: 1, M: 2, L: 3, XL: 4 };
@@ -48,7 +51,8 @@ function sortIdeas(ideas: Idea[], field: SortField, dir: SortDir): Idea[] {
   });
 }
 
-export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplete }: BatchReviewListProps) {
+export function BatchReviewList({productId, ideas: initialIdeas, onBatchComplete}: BatchReviewListProps) {
+  const t = useTranslations('autopilotBatchReview');
   const [ideas, setIdeas] = useState<Idea[]>(initialIdeas);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [actions, setActions] = useState<Record<string, SwipeAction>>({});
@@ -170,9 +174,11 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
       <div className="flex flex-col items-center justify-center py-20 space-y-4">
         <div className="text-4xl">&#10024;</div>
         <h3 className="text-lg font-semibold text-mc-text">
-          {successCount != null ? `${successCount} ideas processed!` : 'No pending ideas'}
+          {successCount != null
+            ? t('ideasProcessedTitle', {count: successCount})
+            : t('noPendingTitle')}
         </h3>
-        <p className="text-sm text-mc-text-secondary">All ideas have been reviewed.</p>
+        <p className="text-sm text-mc-text-secondary">{t('allReviewed')}</p>
       </div>
     );
   }
@@ -188,17 +194,17 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
             className="flex items-center gap-1.5 text-xs text-mc-text-secondary hover:text-mc-text transition-colors"
           >
             {allSelected ? <CheckSquare className="w-4 h-4 text-mc-accent" /> : <Square className="w-4 h-4" />}
-            {allSelected ? 'Deselect all' : 'Select all'}
+            {allSelected ? t('deselectAll') : t('selectAll')}
           </button>
 
           <span className="text-xs text-mc-text-secondary">
-            {ideas.length} pending &middot; {actionCount} actions set
+            {t('pendingActionsLine', {pending: ideas.length, actions: actionCount})}
           </span>
         </div>
 
         {/* Sort controls */}
         <div className="flex items-center gap-2">
-          <span className="text-xs text-mc-text-secondary">Sort:</span>
+          <span className="text-xs text-mc-text-secondary">{t('sortLabel')}</span>
           {SORT_OPTIONS.map(opt => (
             <button
               key={opt.value}
@@ -209,7 +215,7 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
                   : 'text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary'
               }`}
             >
-              {opt.label}
+              {t(opt.labelKey)}
               {sortField === opt.value && (
                 <ArrowUpDown className="w-3 h-3" />
               )}
@@ -221,30 +227,32 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
       {/* Bulk action bar (appears when items selected) */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-2 px-4 py-2 border-b border-mc-border bg-mc-accent/5">
-          <span className="text-xs text-mc-text-secondary mr-2">{selectedIds.size} selected — bulk action:</span>
+          <span className="text-xs text-mc-text-secondary mr-2">
+            {t('bulkSelected', {count: selectedIds.size})}
+          </span>
           <button
             onClick={() => applyBulkAction('approve')}
             className="text-[11px] px-2 py-1 rounded bg-green-500/20 text-green-400 hover:bg-green-500/30 transition-colors"
           >
-            ✅ Approve All
+            {t('approveAll')}
           </button>
           <button
             onClick={() => applyBulkAction('reject')}
             className="text-[11px] px-2 py-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
           >
-            ❌ Reject All
+            {t('rejectAll')}
           </button>
           <button
             onClick={() => applyBulkAction('maybe')}
             className="text-[11px] px-2 py-1 rounded bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 transition-colors"
           >
-            🤔 Maybe All
+            {t('maybeAll')}
           </button>
           <button
             onClick={() => applyBulkAction('fire')}
             className="text-[11px] px-2 py-1 rounded bg-orange-500/20 text-orange-400 hover:bg-orange-500/30 transition-colors"
           >
-            🔥 Fire All
+            {t('fireAll')}
           </button>
         </div>
       )}
@@ -259,7 +267,7 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
       {/* Success */}
       {successCount != null && (
         <div className="mx-4 mt-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-3 py-2 text-sm text-emerald-400">
-          Successfully processed {successCount} ideas!
+          {t('successProcessed', {count: successCount})}
         </div>
       )}
 
@@ -280,7 +288,7 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
       {/* Submit footer */}
       <div className="flex items-center justify-between px-4 py-3 border-t border-mc-border bg-mc-bg-secondary">
         <div className="text-xs text-mc-text-secondary">
-          {actionCount} of {ideas.length} ideas have actions assigned
+          {t('footerActionsAssigned', {actions: actionCount, total: ideas.length})}
         </div>
         <button
           onClick={handleSubmit}
@@ -292,7 +300,7 @@ export function BatchReviewList({ productId, ideas: initialIdeas, onBatchComplet
           }`}
         >
           {submitting ? <Loader className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-          {submitting ? 'Submitting...' : `Submit ${actionCount} Action${actionCount !== 1 ? 's' : ''}`}
+          {submitting ? t('submitting') : t('submitActions', {count: actionCount})}
         </button>
       </div>
     </div>

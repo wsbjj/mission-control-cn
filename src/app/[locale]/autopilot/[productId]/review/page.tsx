@@ -1,14 +1,16 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft, Layers } from 'lucide-react';
-import { BatchReviewList } from '@/components/autopilot/BatchReviewList';
-import type { Idea } from '@/lib/types';
+import {useState, useEffect} from 'react';
+import {useParams} from 'next/navigation';
+import {Link, useRouter} from '@/i18n/navigation';
+import {useTranslations} from 'next-intl';
+import {ArrowLeft, Layers} from 'lucide-react';
+import {BatchReviewList} from '@/components/autopilot/BatchReviewList';
+import type {Idea} from '@/lib/types';
 
 export default function BatchReviewPage() {
-  const { productId } = useParams<{ productId: string }>();
+  const t = useTranslations('autopilotBatchReview');
+  const {productId} = useParams<{productId: string}>();
   const router = useRouter();
   const [ideas, setIdeas] = useState<Idea[]>([]);
   const [loading, setLoading] = useState(true);
@@ -16,7 +18,9 @@ export default function BatchReviewPage() {
   useEffect(() => {
     async function loadIdeas() {
       try {
-        const res = await fetch(`/api/products/${productId}/ideas/pending?sort_by=impact_score&sort_dir=desc`);
+        const res = await fetch(
+          `/api/products/${productId}/ideas/pending?sort_by=impact_score&sort_dir=desc`
+        );
         if (res.ok) {
           const data = await res.json();
           setIdeas(data);
@@ -31,7 +35,6 @@ export default function BatchReviewPage() {
   }, [productId]);
 
   const handleBatchComplete = () => {
-    // Navigate back to swipe deck or product page
     router.push(`/autopilot/${productId}/swipe`);
   };
 
@@ -42,10 +45,10 @@ export default function BatchReviewPage() {
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <Layers className="w-5 h-5 text-mc-accent" />
-        <h1 className="font-semibold text-mc-text">Batch Review</h1>
+        <h1 className="font-semibold text-mc-text">{t('pageTitle')}</h1>
         {!loading && (
           <span className="text-sm text-mc-text-secondary ml-2">
-            {ideas.length} pending ideas
+            {t('pendingIdeasCount', {count: ideas.length})}
           </span>
         )}
       </header>
@@ -53,14 +56,10 @@ export default function BatchReviewPage() {
       <main className="flex-1 flex flex-col">
         {loading ? (
           <div className="flex items-center justify-center py-20">
-            <div className="text-mc-text-secondary animate-pulse">Loading ideas...</div>
+            <div className="text-mc-text-secondary animate-pulse">{t('loadingIdeas')}</div>
           </div>
         ) : (
-          <BatchReviewList
-            productId={productId}
-            ideas={ideas}
-            onBatchComplete={handleBatchComplete}
-          />
+          <BatchReviewList productId={productId} ideas={ideas} onBatchComplete={handleBatchComplete} />
         )}
       </main>
     </div>

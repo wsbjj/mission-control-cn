@@ -1,7 +1,8 @@
 'use client';
 
-import { Target, Code2, Tag } from 'lucide-react';
-import type { Idea, SwipeAction } from '@/lib/types';
+import {useTranslations} from 'next-intl';
+import {Target, Code2, Tag} from 'lucide-react';
+import type {Idea, SwipeAction} from '@/lib/types';
 
 interface BatchReviewRowProps {
   idea: Idea;
@@ -32,7 +33,8 @@ const complexityColors: Record<string, string> = {
   XL: 'text-red-400',
 };
 
-export function BatchReviewRow({ idea, selected, action, onToggleSelect, onActionChange }: BatchReviewRowProps) {
+export function BatchReviewRow({idea, selected, action, onToggleSelect, onActionChange}: BatchReviewRowProps) {
+  const t = useTranslations('autopilotBatchReview');
   const tags: string[] = idea.tags ? (() => { try { return JSON.parse(idea.tags!); } catch { return []; } })() : [];
 
   return (
@@ -76,19 +78,25 @@ export function BatchReviewRow({ idea, selected, action, onToggleSelect, onActio
           {idea.impact_score != null && (
             <div className="flex items-center gap-1 text-xs text-mc-text-secondary">
               <Target className="w-3 h-3 text-mc-accent-cyan" />
-              <span>Impact: <span className="font-medium text-mc-text">{idea.impact_score.toFixed(1)}</span></span>
+              <span>
+                {t('impactLabel')}{' '}
+                <span className="font-medium text-mc-text">{idea.impact_score.toFixed(1)}</span>
+              </span>
             </div>
           )}
           {idea.feasibility_score != null && (
             <div className="flex items-center gap-1 text-xs text-mc-text-secondary">
               <Code2 className="w-3 h-3 text-mc-accent-green" />
-              <span>Feasibility: <span className="font-medium text-mc-text">{idea.feasibility_score.toFixed(1)}</span></span>
+              <span>
+                {t('feasibilityLabel')}{' '}
+                <span className="font-medium text-mc-text">{idea.feasibility_score.toFixed(1)}</span>
+              </span>
             </div>
           )}
           {idea.research_backing && (
             <div className="flex items-center gap-1 text-xs text-mc-text-secondary">
               <Tag className="w-3 h-3" />
-              <span>Has research backing</span>
+              <span>{t('hasResearchBacking')}</span>
             </div>
           )}
           {tags.length > 0 && (
@@ -122,11 +130,11 @@ export function BatchReviewRow({ idea, selected, action, onToggleSelect, onActio
             'bg-mc-bg border-mc-border text-mc-text-secondary'
           }`}
         >
-          <option value="">— Action —</option>
-          <option value="approve">✅ Approve</option>
-          <option value="reject">❌ Reject</option>
-          <option value="maybe">🤔 Maybe</option>
-          <option value="fire">🔥 Build Now</option>
+          <option value="">{t('actionPlaceholder')}</option>
+          <option value="approve">{t('actionApprove')}</option>
+          <option value="reject">{t('actionReject')}</option>
+          <option value="maybe">{t('actionMaybe')}</option>
+          <option value="fire">{t('actionFire')}</option>
         </select>
       </div>
     </div>

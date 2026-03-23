@@ -48,6 +48,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     }
 
     const messages = task.planning_messages ? JSON.parse(task.planning_messages) : [];
+    const sessionAllowsNewAgents = messages.some((m: any) => m?.allow_new_agents === false) ? false : true;
     
     // Scan messages from the end looking for the completion JSON
     let completionParsed: any = null;
@@ -85,7 +86,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Found completion JSON — create agents, save spec, dispatch
     console.log(`[Force Complete] Found completion JSON for task ${taskId} — processing`);
 
-    const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false';
+    const allowDynamicAgents = process.env.ALLOW_DYNAMIC_AGENTS !== 'false' && sessionAllowsNewAgents;
     let firstAgentId: string | null = null;
 
     if (allowDynamicAgents && completionParsed.agents?.length > 0) {

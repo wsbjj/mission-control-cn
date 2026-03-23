@@ -74,6 +74,7 @@ export async function POST(
   try {
     const body = await request.json().catch(() => ({}));
     const customSessionKeyPrefix = body.session_key_prefix;
+    const allowNewAgents = body.allow_new_agents !== false;
 
     // Get task
     const task = getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(taskId) as {
@@ -182,7 +183,12 @@ Respond with ONLY valid JSON in this format:
     });
 
     // Store the session key and initial message
-    const messages = [{ role: 'user', content: planningPrompt, timestamp: Date.now() }];
+    const messages = [{
+      role: 'user',
+      content: planningPrompt,
+      timestamp: Date.now(),
+      allow_new_agents: allowNewAgents,
+    }];
 
     getDb().prepare(`
       UPDATE tasks
@@ -196,6 +202,7 @@ Respond with ONLY valid JSON in this format:
       success: true,
       sessionKey,
       messages,
+      allow_new_agents: allowNewAgents,
       note: 'Planning started. Poll GET endpoint for updates.',
     });
   } catch (error) {

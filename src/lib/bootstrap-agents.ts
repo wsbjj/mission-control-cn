@@ -9,6 +9,7 @@
 import Database from 'better-sqlite3';
 import { getDb } from '@/lib/db';
 import { getMissionControlUrl } from '@/lib/config';
+import { buildWorkspaceSessionPrefix } from '@/lib/openclaw/session-prefix';
 
 // ── Agent Definitions ──────────────────────────────────────────────
 
@@ -171,6 +172,15 @@ Body: {
   },
 ];
 
+const ORCHESTRATOR_SOUL_MD = `# Orchestrator Agent
+
+Workspace-level coordinator for planning and orchestration flows.
+
+## Responsibilities
+- Handle planning conversations and decomposition requests
+- Coordinate role agents and dispatch sequencing
+- Keep orchestration state consistent across retries`;
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
@@ -204,6 +214,10 @@ export function bootstrapCoreAgentsRaw(
 
   const userMd = sharedUserMd(missionControlUrl);
   const now = new Date().toISOString();
+  const workspace = db.prepare(
+    'SELECT slug FROM workspaces WHERE id = ? LIMIT 1'
+  ).get(workspaceId) as { slug?: string | null } | undefined;
+  const orchestratorPrefix = buildWorkspaceSessionPrefix(workspace?.slug || null);
 
   const insert = db.prepare(`
     INSERT INTO agents (id, name, role, description, avatar_emoji, status, is_master, workspace_id, soul_md, user_md, agents_md, source, created_at, updated_at)
@@ -231,6 +245,29 @@ export function bootstrapCoreAgentsRaw(
     );
     console.log(`[Bootstrap] Created ${agent.name} (${agent.role}) for workspace ${workspaceId}`);
   }
+
+  const orchestratorId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO agents (
+      id, name, role, description, avatar_emoji, status, is_master, workspace_id,
+      soul_md, user_md, agents_md, source, session_key_prefix, created_at, updated_at
+    )
+    VALUES (?, ?, 'orchestrator', ?, '🧭', 'standby', 1, ?, ?, ?, ?, 'local', ?, ?, ?)
+  `).run(
+    orchestratorId,
+    'Orchestrator Agent',
+    'Workspace orchestrator for planning and coordination',
+    workspaceId,
+    ORCHESTRATOR_SOUL_MD,
+    userMd,
+    SHARED_AGENTS_MD,
+    orchestratorPrefix,
+    now,
+    now
+  );
+  console.log(
+    `[Bootstrap] Created Orchestrator Agent (orchestrator, master) for workspace ${workspaceId}`
+  );
 }
 
 /**

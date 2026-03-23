@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getDb } from '@/lib/db';
 import { bootstrapCoreAgents, cloneWorkflowTemplates } from '@/lib/bootstrap-agents';
 import { ensureOpenClawIsolationColumns } from '@/lib/db/runtime-openclaw-columns';
-import { createWorkspaceRootAgent, ensureWorkspaceRoleAgents } from '@/lib/openclaw/workspace-root-agent';
+import {
+  bestEffortDisableWorkspaceAgents,
+  createWorkspaceRootAgent,
+  ensureWorkspaceRoleAgents
+} from '@/lib/openclaw/workspace-root-agent';
 import type { Workspace, WorkspaceStats, TaskStatus } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -126,14 +130,17 @@ export async function POST(request: NextRequest) {
     cloneWorkflowTemplates(db, id);
     bootstrapCoreAgents(id);
 
+    let provisionedRoles: string[] = [];
     try {
       const workspaceAgents = db.prepare(`
         SELECT id, role, name, model
         FROM agents
         WHERE workspace_id = ? AND role IN ('builder', 'tester', 'reviewer', 'learner')
       `).all(id) as Array<{ id: string; role: string; name: string; model?: string | null }>;
+      provisionedRoles = workspaceAgents.map((a) => a.role);
 
       const roleMapping = await ensureWorkspaceRoleAgents({
+        workspaceId: id,
         workspaceSlug: slug,
         roles: workspaceAgents.map((a) => ({ role: a.role, name: a.name, model: a.model || null })),
       });
@@ -151,6 +158,11 @@ export async function POST(request: NextRequest) {
         updateAgent.run(map.gatewayAgentId, map.sessionKeyPrefix, agent.id);
       }
     } catch (provisionError) {
+      await bestEffortDisableWorkspaceAgents({
+        workspaceId: id,
+        workspaceSlug: slug,
+        roles: provisionedRoles,
+      });
       db.prepare('DELETE FROM agents WHERE workspace_id = ?').run(id);
       db.prepare('DELETE FROM workflow_templates WHERE workspace_id = ?').run(id);
       db.prepare('DELETE FROM workspaces WHERE id = ?').run(id);

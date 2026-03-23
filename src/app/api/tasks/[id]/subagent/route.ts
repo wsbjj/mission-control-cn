@@ -21,7 +21,11 @@ export async function POST(
     const taskId = params.id;
     const body = await request.json();
     
-    const { openclaw_session_id, agent_name } = body;
+    const { openclaw_session_id, agent_name, agent_id } = body as {
+      openclaw_session_id?: string;
+      agent_name?: string;
+      agent_id?: string;
+    };
 
     if (!openclaw_session_id) {
       return NextResponse.json(
@@ -44,11 +48,21 @@ export async function POST(
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
 
-    // Create a placeholder agent if agent_name is provided
-    // Otherwise, we'll need to link to an existing agent
+    // Sub-agent sessions must always resolve to a workspace agent.
     let agentId = null;
-    
-    if (agent_name) {
+
+    if (agent_id) {
+      const existingById = db.prepare(
+        'SELECT id FROM agents WHERE id = ? AND workspace_id = ?'
+      ).get(agent_id, task.workspace_id) as { id: string } | undefined;
+      if (!existingById) {
+        return NextResponse.json(
+          { error: 'Provided agent_id does not exist in this workspace' },
+          { status: 400 }
+        );
+      }
+      agentId = existingById.id;
+    } else if (agent_name) {
       // Check if agent already exists
       const existingAgent = db.prepare(
         'SELECT id FROM agents WHERE name = ? AND workspace_id = ?'
@@ -72,7 +86,21 @@ export async function POST(
         );
       } else {
         console.log(`[Subagent] Dynamic agent generation disabled (ALLOW_DYNAMIC_AGENTS=false), skipping creation of sub-agent "${agent_name}"`);
+        return NextResponse.json(
+          {
+            error: 'Sub-agent does not exist in workspace while dynamic agent creation is disabled',
+            code: 'SUBAGENT_NOT_FOUND_DYNAMIC_DISABLED',
+          },
+          { status: 409 }
+        );
       }
+    }
+
+    if (!agentId) {
+      return NextResponse.json(
+        { error: 'agent_name or valid agent_id is required to register a sub-agent session' },
+        { status: 400 }
+      );
     }
 
     let inheritedSessionKeyPrefix: string | null = null;

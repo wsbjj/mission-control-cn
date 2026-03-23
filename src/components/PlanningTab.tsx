@@ -598,7 +598,7 @@ export function PlanningTab({ taskId, onSpecLocked }: PlanningTabProps) {
             onChange={(e) => setAllowNewAgents(e.target.checked)}
             className="rounded border-mc-border"
           />
-          是否允许生成新的Agent
+          {t('planningAllowNewAgentsLabel')}
         </label>
 
         <button

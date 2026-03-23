@@ -4,6 +4,10 @@ function normalizeWorkspaceAgentName(workspaceId: string, workspaceSlug: string)
   return `mc-workspace-${workspaceSlug}-${workspaceId.slice(0, 8)}`;
 }
 
+function normalizeWorkspaceRoleAgentName(workspaceId: string, workspaceSlug: string, role: string): string {
+  return `mc-${workspaceSlug}-${workspaceId.slice(0, 8)}-${role}-agent`;
+}
+
 function resolveAgentId(record: Record<string, unknown> | null | undefined): string | null {
   if (!record) return null;
   const id =
@@ -16,6 +20,50 @@ function resolveAgentId(record: Record<string, unknown> | null | undefined): str
         (record.agent as Record<string, unknown>).agent_id)
       : null);
   return typeof id === 'string' && id.length > 0 ? id : null;
+}
+
+async function bestEffortDisableAgentsByName(
+  client: ReturnType<typeof getOpenClawClient>,
+  agentName: string
+): Promise<void> {
+  try {
+    const list = await client.listAgents() as Array<{ id?: string; name?: string; status?: string }>;
+    const candidates = list.filter((a) => a.name === agentName && a.id);
+    for (const candidate of candidates) {
+      if (!candidate.id) continue;
+      try {
+        await client.disableAgent(candidate.id);
+      } catch {
+        // Fallback for gateways exposing status update instead of disable.
+        await client.call('agents.update', { agentId: candidate.id, status: 'disabled' });
+      }
+    }
+  } catch {
+    // Best-effort cleanup: ignore secondary failures.
+  }
+}
+
+export async function bestEffortDisableWorkspaceAgents(params: {
+  workspaceId: string;
+  workspaceSlug: string;
+  roles: string[];
+}): Promise<void> {
+  const client = getOpenClawClient();
+  try {
+    if (!client.isConnected()) {
+      await client.connect();
+    }
+    const names = new Set<string>();
+    names.add(normalizeWorkspaceAgentName(params.workspaceId, params.workspaceSlug));
+    for (const role of params.roles) {
+      names.add(normalizeWorkspaceRoleAgentName(params.workspaceId, params.workspaceSlug, role));
+    }
+    for (const name of names) {
+      await bestEffortDisableAgentsByName(client, name);
+    }
+  } catch {
+    // Best-effort cleanup: ignore secondary failures.
+  }
 }
 
 export async function createWorkspaceRootAgent(params: {
@@ -54,10 +102,13 @@ export async function createWorkspaceRootAgent(params: {
     return { agentId: matched.id, status: matched.status || 'active' };
   }
 
+  // Creation may have succeeded but id lookup failed; prevent orphan agents.
+  await bestEffortDisableAgentsByName(client, expectedName);
   throw new Error('OpenClaw did not return or expose a resolvable root agent id after create');
 }
 
 export async function ensureWorkspaceRoleAgents(params: {
+  workspaceId: string;
   workspaceSlug: string;
   roles: Array<{ role: string; name: string; model?: string | null }>;
 }): Promise<Map<string, { gatewayAgentId: string; sessionKeyPrefix: string }>> {
@@ -71,7 +122,11 @@ export async function ensureWorkspaceRoleAgents(params: {
   const prefix = `agent:${params.workspaceSlug}:`;
 
   for (const roleAgent of params.roles) {
-    const expectedName = `mc-${params.workspaceSlug}-${roleAgent.role}-agent`;
+    const expectedName = normalizeWorkspaceRoleAgentName(
+      params.workspaceId,
+      params.workspaceSlug,
+      roleAgent.role
+    );
     const found = existing.find((a) => a.name === expectedName);
     if (found?.id) {
       mapping.set(roleAgent.role, { gatewayAgentId: found.id, sessionKeyPrefix: prefix });

@@ -127,10 +127,10 @@ export async function DELETE(
       try {
         await disableWorkspaceRootAgent(existing.openclaw_root_agent_id as string);
       } catch (error) {
-        return NextResponse.json({
-          error: 'Failed to disable OpenClaw workspace root agent',
-          detail: (error as Error).message,
-        }, { status: 503 });
+        console.error(
+          '[Workspace Delete] Best-effort OpenClaw root-agent disable failed; continuing workspace deletion',
+          { workspaceId: id, rootAgentId: existing.openclaw_root_agent_id, error: (error as Error).message }
+        );
       }
     }
 

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import Link from 'next/link';
+import { Link } from '@/i18n/navigation';
 import { ArrowLeft, Rocket, Play, Layers, Lightbulb, BarChart3, FileText, Zap, Loader } from 'lucide-react';
 import { SwipeDeck } from '@/components/autopilot/SwipeDeck';
 import { IdeasList } from '@/components/autopilot/IdeasList';

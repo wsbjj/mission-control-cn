@@ -1,11 +1,19 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Plus, Rocket, ArrowRight } from 'lucide-react';
-import Link from 'next/link';
-import type { Product } from '@/lib/types';
+import {useState, useEffect} from 'react';
+import {Plus, Rocket, ArrowRight} from 'lucide-react';
+import {useTranslations} from 'next-intl';
+import {Link} from '@/i18n/navigation';
+import type {Product, ProductStatus} from '@/lib/types';
+
+function productStatusLabel(status: ProductStatus, t: (key: 'statusActive' | 'statusPaused' | 'statusArchived') => string) {
+  if (status === 'active') return t('statusActive');
+  if (status === 'paused') return t('statusPaused');
+  return t('statusArchived');
+}
 
 export default function AutopilotPage() {
+  const t = useTranslations('autopilotIndex');
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -27,7 +35,7 @@ export default function AutopilotPage() {
       <div className="min-h-screen bg-mc-bg flex items-center justify-center">
         <div className="text-center">
           <div className="text-4xl mb-4 animate-pulse">🚀</div>
-          <p className="text-mc-text-secondary">Loading autopilot...</p>
+          <p className="text-mc-text-secondary">{t('loading')}</p>
         </div>
       </div>
     );
@@ -40,18 +48,18 @@ export default function AutopilotPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <Rocket className="w-6 h-6 text-mc-accent-cyan" />
-              <h1 className="text-xl font-bold text-mc-text">Product Autopilot</h1>
+              <h1 className="text-xl font-bold text-mc-text">{t('title')}</h1>
             </div>
             <div className="flex items-center gap-2">
               <Link href="/" className="min-h-11 px-4 rounded-lg border border-mc-border bg-mc-bg text-mc-text-secondary hover:text-mc-text hover:bg-mc-bg-tertiary flex items-center gap-2 text-sm">
-                Workspaces
+                {t('navWorkspaces')}
               </Link>
               <Link
                 href="/autopilot/new"
                 className="min-h-11 px-4 rounded-lg bg-mc-accent text-white hover:bg-mc-accent/90 flex items-center gap-2 text-sm font-medium"
               >
                 <Plus className="w-4 h-4" />
-                New Product
+                {t('newProduct')}
               </Link>
             </div>
           </div>
@@ -62,22 +70,19 @@ export default function AutopilotPage() {
         {products.length === 0 ? (
           <div className="text-center py-20">
             <div className="text-6xl mb-6">🚀</div>
-            <h2 className="text-2xl font-bold text-mc-text mb-3">No products yet</h2>
-            <p className="text-mc-text-secondary mb-8 max-w-md mx-auto">
-              Create your first product to start the autonomous development loop.
-              Agents will research, ideate, and you swipe to decide what gets built.
-            </p>
+            <h2 className="text-2xl font-bold text-mc-text mb-3">{t('emptyTitle')}</h2>
+            <p className="text-mc-text-secondary mb-8 max-w-md mx-auto">{t('emptyDescription')}</p>
             <Link
               href="/autopilot/new"
               className="inline-flex items-center gap-2 px-6 py-3 bg-mc-accent text-white rounded-lg hover:bg-mc-accent/90 font-medium"
             >
               <Plus className="w-5 h-5" />
-              Create First Product
+              {t('createFirstProduct')}
             </Link>
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {products.map(product => (
+            {products.map((product) => (
               <Link
                 key={product.id}
                 href={`/autopilot/${product.id}`}
@@ -88,20 +93,22 @@ export default function AutopilotPage() {
                     <span className="text-2xl">{product.icon}</span>
                     <div>
                       <h3 className="font-semibold text-mc-text group-hover:text-mc-accent transition-colors">{product.name}</h3>
-                      <span className={`text-xs px-2 py-0.5 rounded ${
-                        product.status === 'active' ? 'bg-green-500/20 text-green-400' :
-                        product.status === 'paused' ? 'bg-amber-500/20 text-amber-400' :
-                        'bg-mc-bg-tertiary text-mc-text-secondary'
-                      }`}>
-                        {product.status}
+                      <span
+                        className={`text-xs px-2 py-0.5 rounded ${
+                          product.status === 'active'
+                            ? 'bg-green-500/20 text-green-400'
+                            : product.status === 'paused'
+                              ? 'bg-amber-500/20 text-amber-400'
+                              : 'bg-mc-bg-tertiary text-mc-text-secondary'
+                        }`}
+                      >
+                        {productStatusLabel(product.status, t)}
                       </span>
                     </div>
                   </div>
                   <ArrowRight className="w-4 h-4 text-mc-text-secondary group-hover:text-mc-accent transition-colors" />
                 </div>
-                {product.description && (
-                  <p className="text-sm text-mc-text-secondary line-clamp-2">{product.description}</p>
-                )}
+                {product.description && <p className="text-sm text-mc-text-secondary line-clamp-2">{product.description}</p>}
               </Link>
             ))}
           </div>

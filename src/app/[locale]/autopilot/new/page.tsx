@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useTranslations } from 'next-intl';
+import { useRouter, Link } from '@/i18n/navigation';
 import { ArrowLeft, ArrowRight, Check, Rocket, Search, Loader, AlertTriangle } from 'lucide-react';
-import Link from 'next/link';
 
 type Step = 'basics' | 'program' | 'schedule' | 'done';
 
@@ -17,6 +17,7 @@ function isValidUrl(str: string): boolean {
 }
 
 export default function NewProductPage() {
+  const t = useTranslations('autopilotNew');
   const router = useRouter();
   const [step, setStep] = useState<Step>('basics');
   const [saving, setSaving] = useState(false);
@@ -49,8 +50,8 @@ export default function NewProductPage() {
       });
 
       if (!res.ok) {
-        const data = await res.json().catch(() => ({ error: 'Scan failed' }));
-        setScanError(data.error || `Scan failed (${res.status})`);
+        const data = await res.json().catch(() => ({ error: '' }));
+        setScanError(data.error || t('scanFailedStatus', { status: res.status }));
         return;
       }
 
@@ -62,7 +63,7 @@ export default function NewProductPage() {
         description: f.description || description || f.description,
       }));
     } catch (error) {
-      setScanError('Failed to connect to scan service');
+      setScanError(t('scanConnectFailed'));
       console.error('Scan failed:', error);
     } finally {
       setScanning(false);
@@ -77,12 +78,12 @@ export default function NewProductPage() {
     try {
       const res = await fetch(`https://api.github.com/repos/${match[1]}/${match[2]}`, { method: 'GET' });
       if (!res.ok) {
-        setRepoWarning('Could not verify this repository. Make sure it exists and is accessible.');
+        setRepoWarning(t('repoVerifyFailed'));
       } else {
         setRepoWarning(null);
       }
     } catch {
-      setRepoWarning('Could not verify this repository. Make sure it exists and is accessible.');
+      setRepoWarning(t('repoVerifyFailed'));
     }
   };
 
@@ -132,7 +133,7 @@ export default function NewProductPage() {
               <ArrowLeft className="w-5 h-5" />
             </Link>
             <Rocket className="w-5 h-5 text-mc-accent-cyan" />
-            <h1 className="text-lg font-bold text-mc-text">New Product</h1>
+            <h1 className="text-lg font-bold text-mc-text">{t('title')}</h1>
           </div>
         </div>
       </header>
@@ -157,23 +158,23 @@ export default function NewProductPage() {
         {step === 'basics' && (
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-mc-text mb-2">Product Name *</label>
+              <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldProductName')}</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
                 className="w-full bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text focus:outline-none focus:border-mc-accent"
-                placeholder="My Product"
+                placeholder={t('placeholderProductName')}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-mc-text mb-2">Description</label>
+              <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldDescription')}</label>
               <textarea
                 value={form.description}
                 onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
                 className="w-full bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text focus:outline-none focus:border-mc-accent resize-none"
                 rows={3}
-                placeholder="What does this product do?"
+                placeholder={t('placeholderDescription')}
               />
             </div>
 
@@ -185,7 +186,7 @@ export default function NewProductPage() {
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-mc-text mb-2">Repo URL</label>
+                <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldRepoUrl')}</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -193,13 +194,14 @@ export default function NewProductPage() {
                     onChange={e => setForm(f => ({ ...f, repo_url: e.target.value }))}
                     onBlur={() => { if (form.repo_url) validateRepoUrl(form.repo_url); }}
                     className="flex-1 bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text text-sm focus:outline-none focus:border-mc-accent"
-                    placeholder="https://github.com/..."
+                    placeholder={t('placeholderRepoUrl')}
                   />
                   <button
+                    type="button"
                     onClick={() => handleScan(form.repo_url, 'repo')}
                     disabled={!isValidUrl(form.repo_url) || scanningRepo}
                     className="shrink-0 px-3 py-3 bg-mc-bg-tertiary border border-mc-border rounded-lg text-mc-text-secondary hover:text-mc-text hover:border-mc-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    title="Scan repo — auto-fill name & description from README"
+                    title={t('titleScanRepo')}
                   >
                     {scanningRepo ? <Loader className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   </button>
@@ -208,54 +210,55 @@ export default function NewProductPage() {
                   <p className="text-[11px] text-amber-400 mt-1.5">{repoWarning}</p>
                 )}
                 <p className="text-[11px] text-mc-text-secondary mt-1.5">
-                  Scan repo to auto-fill name & description from README
+                  {t('helperRepoScan')}
                 </p>
               </div>
               <div>
-                <label className="block text-sm font-medium text-mc-text mb-2">Live URL</label>
+                <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldLiveUrl')}</label>
                 <div className="flex gap-2">
                   <input
                     type="text"
                     value={form.live_url}
                     onChange={e => setForm(f => ({ ...f, live_url: e.target.value }))}
                     className="flex-1 bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text text-sm focus:outline-none focus:border-mc-accent"
-                    placeholder="https://..."
+                    placeholder={t('placeholderLiveUrl')}
                   />
                   <button
+                    type="button"
                     onClick={() => handleScan(form.live_url, 'site')}
                     disabled={!isValidUrl(form.live_url) || scanningSite}
                     className="shrink-0 px-3 py-3 bg-mc-bg-tertiary border border-mc-border rounded-lg text-mc-text-secondary hover:text-mc-text hover:border-mc-accent disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                    title="Scan site — auto-fill name & description from website"
+                    title={t('titleScanSite')}
                   >
                     {scanningSite ? <Loader className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
                   </button>
                 </div>
                 <p className="text-[11px] text-mc-text-secondary mt-1.5">
-                  Scan site to auto-fill name & description from website
+                  {t('helperSiteScan')}
                 </p>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-mc-text mb-2">When ideas are approved</label>
+                <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldBuildMode')}</label>
                 <select
                   value={form.build_mode}
                   onChange={e => setForm(f => ({ ...f, build_mode: e.target.value as 'plan_first' | 'auto_build' }))}
                   className="w-full bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text text-sm focus:outline-none focus:border-mc-accent"
                 >
-                  <option value="plan_first">Plan first — send to planning queue</option>
-                  <option value="auto_build">Auto-build — dispatch to builder immediately</option>
+                  <option value="plan_first">{t('optionPlanFirst')}</option>
+                  <option value="auto_build">{t('optionAutoBuild')}</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-mc-text mb-2">Default Branch</label>
+                <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldDefaultBranch')}</label>
                 <input
                   type="text"
                   value={form.default_branch}
                   onChange={e => setForm(f => ({ ...f, default_branch: e.target.value }))}
                   className="w-full bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text text-sm focus:outline-none focus:border-mc-accent"
-                  placeholder="main"
+                  placeholder={t('placeholderBranch')}
                 />
               </div>
             </div>
@@ -264,18 +267,18 @@ export default function NewProductPage() {
               <div className="flex items-start gap-3 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
                 <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
                 <p className="text-sm text-amber-300">
-                  Without a repository, Autopilot can research and generate ideas but agents
-                  won&apos;t be able to build features or create pull requests.
+                  {t('noRepoWarning')}
                 </p>
               </div>
             )}
 
             <button
+              type="button"
               onClick={handleCreate}
               disabled={!form.name.trim() || saving}
               className="w-full min-h-11 bg-mc-accent text-white rounded-lg font-medium hover:bg-mc-accent/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              {saving ? 'Creating...' : 'Next: Product Program'}
+              {saving ? t('btnCreating') : t('btnNextProgram')}
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -284,31 +287,35 @@ export default function NewProductPage() {
         {step === 'program' && (
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-mc-text mb-2">Product Program</label>
+              <label className="block text-sm font-medium text-mc-text mb-2">{t('fieldProductProgram')}</label>
               <p className="text-sm text-mc-text-secondary mb-4">
-                This document instructs the research and ideation agents. Describe your product, target users, priorities, and what you want the agents to focus on.
+                {t('programIntro')}
               </p>
               <textarea
                 value={form.product_program}
                 onChange={e => setForm(f => ({ ...f, product_program: e.target.value }))}
                 className="w-full bg-mc-bg-tertiary border border-mc-border rounded-lg px-4 py-3 text-mc-text font-mono text-sm focus:outline-none focus:border-mc-accent resize-none"
                 rows={20}
-                placeholder={`# Product Program: ${form.name}\n\n## Purpose\nWhat this product does and who it's for.\n\n## Target Users\nWho uses this and what problems they have.\n\n## Priorities\nWhat matters most — growth, stability, features, UX, performance, etc.\n\n## Research Directives\nSpecific areas to focus research on.\n\n## Exclusions\nThings you do NOT want suggested.`}
+                placeholder={t('programPlaceholder', {
+                  name: form.name.trim() || t('programPlaceholderFallbackName'),
+                })}
               />
             </div>
             <div className="flex gap-3">
               <button
+                type="button"
                 onClick={() => setStep('schedule')}
                 className="flex-1 min-h-11 border border-mc-border text-mc-text-secondary rounded-lg hover:bg-mc-bg-tertiary"
               >
-                Skip for now
+                {t('skipForNow')}
               </button>
               <button
+                type="button"
                 onClick={handleSaveProgram}
                 disabled={saving}
                 className="flex-1 min-h-11 bg-mc-accent text-white rounded-lg font-medium hover:bg-mc-accent/90 disabled:opacity-50 flex items-center justify-center gap-2"
               >
-                {saving ? 'Saving...' : 'Next: Schedules'}
+                {saving ? t('saving') : t('nextSchedules')}
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -318,31 +325,32 @@ export default function NewProductPage() {
         {step === 'schedule' && (
           <div className="space-y-6">
             <div className="bg-mc-bg-secondary border border-mc-border rounded-xl p-6">
-              <h3 className="font-semibold text-mc-text mb-4">Default Schedules</h3>
+              <h3 className="font-semibold text-mc-text mb-4">{t('defaultSchedules')}</h3>
               <p className="text-sm text-mc-text-secondary mb-6">
-                These schedules run automatically. You can customize them later in product settings.
+                {t('schedulesIntro')}
               </p>
               <div className="space-y-3 text-sm">
                 <div className="flex items-center justify-between py-2 border-b border-mc-border">
-                  <span className="text-mc-text">Research + Ideation</span>
-                  <span className="text-mc-text-secondary font-mono">Daily at 11pm</span>
+                  <span className="text-mc-text">{t('schedResearch')}</span>
+                  <span className="text-mc-text-secondary font-mono">{t('schedResearchTime')}</span>
                 </div>
                 <div className="flex items-center justify-between py-2 border-b border-mc-border">
-                  <span className="text-mc-text">Maybe Re-evaluation</span>
-                  <span className="text-mc-text-secondary font-mono">Weekly (Monday 10am)</span>
+                  <span className="text-mc-text">{t('schedMaybe')}</span>
+                  <span className="text-mc-text-secondary font-mono">{t('schedMaybeTime')}</span>
                 </div>
                 <div className="flex items-center justify-between py-2">
-                  <span className="text-mc-text">Preference Update</span>
-                  <span className="text-mc-text-secondary font-mono">Weekly (Monday 9am)</span>
+                  <span className="text-mc-text">{t('schedPref')}</span>
+                  <span className="text-mc-text-secondary font-mono">{t('schedPrefTime')}</span>
                 </div>
               </div>
             </div>
             <button
+              type="button"
               onClick={() => router.push(`/autopilot/${productId}`)}
               className="w-full min-h-11 bg-mc-accent text-white rounded-lg font-medium hover:bg-mc-accent/90 flex items-center justify-center gap-2"
             >
               <Check className="w-4 h-4" />
-              Go to Product Dashboard
+              {t('goDashboard')}
             </button>
           </div>
         )}

@@ -8,6 +8,7 @@
 import { queryOne, queryAll, run } from '@/lib/db';
 import { getMissionControlUrl } from '@/lib/config';
 import { getOpenClawClient } from '@/lib/openclaw/client';
+import { buildWorkspaceSessionPrefix, normalizeSessionPrefix } from '@/lib/openclaw/session-prefix';
 import type { KnowledgeEntry, TaskRole, OpenClawSession } from '@/lib/types';
 
 /**
@@ -98,7 +99,10 @@ Focus on:
     }
 
     if (session) {
-      const prefix = learnerRole.session_key_prefix || 'agent:main:';
+      const workspace = queryOne<{ slug?: string }>('SELECT slug FROM workspaces WHERE id = ?', [task.workspace_id]);
+      const prefix =
+        normalizeSessionPrefix(learnerRole.session_key_prefix) ||
+        buildWorkspaceSessionPrefix(workspace?.slug);
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
       await client.call('chat.send', {
         sessionKey,

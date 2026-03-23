@@ -2,6 +2,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { queryOne, queryAll, run } from '@/lib/db';
 import { broadcast } from '@/lib/events';
 import { getOpenClawClient } from '@/lib/openclaw/client';
+import { buildWorkspaceSessionPrefix, normalizeSessionPrefix } from '@/lib/openclaw/session-prefix';
 import type { TaskNote, OpenClawSession, Agent } from '@/lib/types';
 
 /**
@@ -98,7 +99,16 @@ export async function deliverPendingNotesAtCheckpoint(taskId: string): Promise<n
 
     // Get the agent's session key prefix
     const agent = queryOne<Agent>('SELECT * FROM agents WHERE id = ?', [activeSession.agent_id]);
-    const prefix = agent?.session_key_prefix || 'agent:main:';
+    const taskWorkspace = queryOne<{ workspace_slug?: string }>(
+      `SELECT w.slug as workspace_slug
+       FROM tasks t
+       LEFT JOIN workspaces w ON t.workspace_id = w.id
+       WHERE t.id = ?`,
+      [taskId]
+    );
+    const prefix =
+      normalizeSessionPrefix(agent?.session_key_prefix) ||
+      buildWorkspaceSessionPrefix(taskWorkspace?.workspace_slug);
     const sessionKey = `${prefix}${activeSession.openclaw_session_id}`;
 
     // Build the message
@@ -161,7 +171,16 @@ export function getActiveSessionForTask(taskId: string): { session: OpenClawSess
   if (!session) return null;
 
   const agent = queryOne<Agent>('SELECT * FROM agents WHERE id = ?', [session.agent_id]);
-  const prefix = agent?.session_key_prefix || 'agent:main:';
+  const taskWorkspace = queryOne<{ workspace_slug?: string }>(
+    `SELECT w.slug as workspace_slug
+     FROM tasks t
+     LEFT JOIN workspaces w ON t.workspace_id = w.id
+     WHERE t.id = ?`,
+    [taskId]
+  );
+  const prefix =
+    normalizeSessionPrefix(agent?.session_key_prefix) ||
+    buildWorkspaceSessionPrefix(taskWorkspace?.workspace_slug);
   const sessionKey = `${prefix}${session.openclaw_session_id}`;
 
   return { session, sessionKey };

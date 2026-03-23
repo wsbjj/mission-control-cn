@@ -12,6 +12,7 @@ import { buildCheckpointContext } from '@/lib/checkpoint';
 import { formatMailForDispatch } from '@/lib/mailbox';
 import { getPendingNotesForDispatch } from '@/lib/task-notes';
 import { createTaskWorkspace, determineIsolationStrategy } from '@/lib/workspace-isolation';
+import { resolveSessionPrefix } from '@/lib/openclaw/session-prefix';
 import type { Task, Agent, Product, OpenClawSession, WorkflowStage, TaskImage } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
@@ -443,10 +444,12 @@ If you need help or clarification, ask the orchestrator.`;
 
     // Send message to agent's session using chat.send
     try {
-      // Use sessionKey for routing to the agent's session
-      // Format: {prefix}{openclaw_session_id} where prefix defaults to 'agent:main:'
-      const workspacePrefix = task.workspace_slug ? `agent:${task.workspace_slug}:` : 'agent:main:';
-      const prefix = session.inherited_session_key_prefix || agent.session_key_prefix || workspacePrefix;
+      // Use sessionKey for routing to the agent's session.
+      const prefix = resolveSessionPrefix({
+        inheritedPrefix: session.inherited_session_key_prefix,
+        agentPrefix: agent.session_key_prefix,
+        workspaceSlug: task.workspace_slug,
+      });
       const sessionKey = `${prefix}${session.openclaw_session_id}`;
       await client.call('chat.send', {
         sessionKey,

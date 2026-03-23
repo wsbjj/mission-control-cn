@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, queryAll, queryOne, run } from '@/lib/db';
 import { getOpenClawClient } from '@/lib/openclaw/client';
+import { buildWorkspaceSessionPrefix, normalizeSessionPrefix } from '@/lib/openclaw/session-prefix';
 import { broadcast } from '@/lib/events';
 import { extractJSON } from '@/lib/planning-utils';
 // File system imports removed - using OpenClaw API instead
 
 export const dynamic = 'force-dynamic';
-
-// Default planning session prefix for OpenClaw
-// Can be overridden per-agent via the session_key_prefix column on agents table
-const DEFAULT_SESSION_KEY_PREFIX = 'agent:main:';
 
 // GET /api/tasks/[id]/planning - Get planning state
 export async function GET(
@@ -85,6 +82,7 @@ export async function POST(
       description: string;
       status: string;
       workspace_id: string;
+      workspace_slug?: string;
       planning_session_key?: string;
       planning_messages?: string;
     } | undefined;
@@ -107,11 +105,12 @@ export async function POST(
 
     // Get assigned agent if any (for session_key_prefix)
     const taskWithAgent = getDb().prepare(`
-      SELECT a.session_key_prefix 
+      SELECT a.session_key_prefix, w.slug as workspace_slug
       FROM tasks t 
       LEFT JOIN agents a ON t.assigned_agent_id = a.id 
+      LEFT JOIN workspaces w ON t.workspace_id = w.id
       WHERE t.id = ?
-    `).get(taskId) as { session_key_prefix?: string } | undefined;
+    `).get(taskId) as { session_key_prefix?: string; workspace_slug?: string } | undefined;
 
     const otherOrchestrators = queryAll<{
       id: string;
@@ -137,7 +136,11 @@ export async function POST(
 
     // Create session key for this planning task
     // Priority: custom prefix > assigned agent's prefix > master agent's prefix > default prefix
-    const basePrefix = customSessionKeyPrefix || taskWithAgent?.session_key_prefix || defaultMaster?.session_key_prefix || DEFAULT_SESSION_KEY_PREFIX;
+    const basePrefix =
+      normalizeSessionPrefix(customSessionKeyPrefix) ||
+      normalizeSessionPrefix(taskWithAgent?.session_key_prefix) ||
+      normalizeSessionPrefix(defaultMaster?.session_key_prefix) ||
+      buildWorkspaceSessionPrefix(taskWithAgent?.workspace_slug);
     const planningPrefix = basePrefix + 'planning:';
     const sessionKey = `${planningPrefix}${taskId}`;
 

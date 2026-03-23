@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createConvoy, getConvoy, updateConvoyStatus, deleteConvoy } from '@/lib/convoy';
 import { queryOne, queryAll } from '@/lib/db';
 import { getOpenClawClient } from '@/lib/openclaw/client';
+import { buildWorkspaceSessionPrefix, normalizeSessionPrefix } from '@/lib/openclaw/session-prefix';
 import { extractJSON, getMessagesFromOpenClaw } from '@/lib/planning-utils';
 import type { Task, Agent, ConvoyStatus, DecompositionStrategy } from '@/lib/types';
 
@@ -82,7 +83,10 @@ async function runAIDecomposition(task: Task): Promise<{
   }
 
   // Create a unique session key for this decomposition
-  const prefix = masterAgent.session_key_prefix || 'agent:main:';
+  const workspace = queryOne<{ slug?: string }>('SELECT slug FROM workspaces WHERE id = ?', [task.workspace_id]);
+  const prefix =
+    normalizeSessionPrefix(masterAgent.session_key_prefix) ||
+    buildWorkspaceSessionPrefix(workspace?.slug);
   const sessionKey = `${prefix}decompose:${task.id}`;
 
   const prompt = buildDecompositionPrompt(task);

@@ -212,7 +212,9 @@ export function bootstrapCoreAgentsRaw(
 
   for (const agent of CORE_AGENTS) {
     const id = crypto.randomUUID();
-    const isMaster = agent.role === 'builder' ? 1 : 0;
+    // Core role agents are workers, not orchestrators.
+    // Keep them non-master so fallback routing does not deprioritize builder.
+    const isMaster = 0;
     insert.run(
       id,
       agent.name,

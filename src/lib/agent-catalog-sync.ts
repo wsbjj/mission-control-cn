@@ -51,8 +51,8 @@ export async function syncGatewayAgentsToCatalog(options?: { force?: boolean; re
     }
 
     const gatewayAgents = (await client.listAgents()) as GatewayAgent[];
-    const existing = queryAll<{ id: string; gateway_agent_id: string | null; source: string | null; role: string | null }>(
-      `SELECT id, gateway_agent_id, source, role FROM agents WHERE gateway_agent_id IS NOT NULL`
+    const existing = queryAll<{ id: string; gateway_agent_id: string | null; source: string | null; role: string | null; name: string | null }>(
+      `SELECT id, gateway_agent_id, source, role, name FROM agents WHERE gateway_agent_id IS NOT NULL`
     );
     const existingByGatewayId = new Map(existing.map((a) => [a.gateway_agent_id, a]));
 
@@ -73,10 +73,13 @@ export async function syncGatewayAgentsToCatalog(options?: { force?: boolean; re
           const nextRole = existingAgent.source === 'local'
             ? (strictRole || existingAgent.role || role)
             : role;
+          const nextName = existingAgent.source === 'local'
+            ? (existingAgent.name || name)
+            : name;
           const nextSource = existingAgent.source === 'local' ? 'local' : 'gateway';
           run(
             `UPDATE agents SET name = ?, role = ?, model = COALESCE(?, model), source = ?, updated_at = ? WHERE id = ?`,
-            [name, nextRole, ga.model || null, nextSource, ts, existingAgent.id]
+            [nextName, nextRole, ga.model || null, nextSource, ts, existingAgent.id]
           );
         } else {
           run(
